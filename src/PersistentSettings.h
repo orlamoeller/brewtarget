@@ -1,5 +1,5 @@
 /*╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
- * PersistentSettings.h is part of Brewtarget, and is copyright the following authors 2009-2025:
+ * PersistentSettings.h is part of Brewtarget, and is copyright the following authors 2009-2026:
  *   • Dan Cavanagh <dan@dancavanagh.com>
  *   • Daniel Pettersson <pettson81@gmail.com>
  *   • Greg Meess <Daedalus12@gmail.com>
@@ -59,7 +59,8 @@ AddSettingName(dbType)
 AddSettingName(dbUsername)
 AddSettingName(defaultBatchSize_l)
 AddSettingName(defaultPreBoilSize_l)
-AddSettingName(defaultEfficiency)
+AddSettingName(defaultBoilTime_mins)
+AddSettingName(defaultEfficiency_pct)
 AddSettingName(defaultEquipmentKey)
 AddSettingName(deletewhat)
 AddSettingName(directory)                        // backups section
@@ -79,7 +80,8 @@ AddSettingName(geometry_saltCatalog        )  // MainWindow section
 AddSettingName(geometry_styleCatalog       )  // MainWindow section
 AddSettingName(geometry_waterCatalog       )  // MainWindow section
 AddSettingName(geometry_yeastCatalog       )  // MainWindow section
-AddSettingName(geometry_stockWindow) // MainWindow section
+AddSettingName(geometry_stockWindow  ) // MainWindow section
+AddSettingName(geometry_optionsDialog) // MainWindow section
 AddSettingName(ibu_formula)
 AddSettingName(language)
 AddSettingName(last_db_merge_req)

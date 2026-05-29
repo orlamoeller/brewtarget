@@ -148,9 +148,9 @@
 #include "serialization/ImportExport.h"
 #include "tools/AlcoholTool.h"
 #include "tools/AncestorDialog.h"
-#include "tools/ConverterTool.h"
+#include "tools/UnitConversionTool.h"
 #include "tools/HydrometerTool.h"
-#include "tools/OgAdjuster.h"
+#include "tools/OgCorrectionTool.h"
 #include "tools/PitchDialog.h"
 #include "tools/PrimingDialog.h"
 #include "tools/RefractoDialog.h"
@@ -361,8 +361,8 @@ public:
       m_recipeScaler               = std::make_unique<ScaleRecipeTool           >(&m_self);
       m_recipeFormatter            = std::make_unique<RecipeFormatter           >(&m_self);
       m_printAndPreviewDialog      = std::make_unique<PrintAndPreviewDialog     >(&m_self);
-      m_ogAdjuster                 = std::make_unique<OgAdjuster                >(&m_self);
-      m_converterTool              = std::make_unique<ConverterTool             >(&m_self);
+      m_ogCorrectionTool           = std::make_unique<OgCorrectionTool          >(&m_self);
+      m_unitConversionTool         = std::make_unique<UnitConversionTool        >(&m_self);
       m_hydrometerTool             = std::make_unique<HydrometerTool            >(&m_self);
       m_alcoholTool                = std::make_unique<AlcoholTool               >(&m_self);
       m_timerMainDialog            = std::make_unique<TimerMainDialog           >(&m_self);
@@ -440,21 +440,18 @@ public:
    void setStepOwner(std::shared_ptr<Mash> stepOwner) {
       this->m_recipeObs->setMash(stepOwner);
       this->m_mashStepEditor->setOwner(stepOwner);
-      this->m_self.mashButton->setMash(stepOwner);
       this->m_self.mashStepsWidget->setOwner(stepOwner);
       return;
    }
    void setStepOwner(std::shared_ptr<Boil> stepOwner) {
       this->m_recipeObs->setBoil(stepOwner);
       this->m_boilStepEditor->setOwner(stepOwner);
-      this->m_self.boilButton->setBoil(stepOwner);
       this->m_self.boilStepsWidget->setOwner(stepOwner);
       return;
    }
    void setStepOwner(std::shared_ptr<Fermentation> stepOwner) {
       this->m_recipeObs->setFermentation(stepOwner);
       this->m_fermentationStepEditor->setOwner(stepOwner);
-      this->m_self.fermentationButton->setFermentation(stepOwner);
       this->m_self.fermentationStepsWidget->setOwner(stepOwner);
       return;
    }
@@ -653,8 +650,7 @@ public:
     */
    std::shared_ptr<Recipe> getSelectedRecipe() {
       for (QModelIndex selected : this->m_self.treeView_recipe->selectionModel()->selectedRows()) {
-         auto recipe   = this->m_self.treeView_recipe->getItem<Recipe  >(selected);
-         if (recipe) {
+         if (auto recipe = this->m_self.treeView_recipe->getItem<Recipe>(selected)) {
             return recipe;
          }
       }
@@ -668,7 +664,7 @@ public:
       for (QModelIndex selected : this->m_self.treeView_recipe->selectionModel()->selectedRows()) {
          QModelIndex parent = this->m_self.treeView_recipe->parentIndex(selected);
          auto brewLog = this->m_self.treeView_recipe->getItem<BrewLog>(selected);
-         auto recipe   = this->m_self.treeView_recipe->getItem<Recipe  >(parent  );
+         auto recipe  = this->m_self.treeView_recipe->getItem<Recipe  >(parent  );
          if (brewLog && recipe) {
             return {brewLog, recipe};
          }
@@ -699,21 +695,29 @@ public:
    }
 
    /**
-    * \brief creates a new brewLog
+    * \brief Creates a new BrewLog.  Called from MainWindow::brewItHelper().
     */
    BrewLog * createBrewLog() {
-      auto recipe = this->getSelectedRecipe();
+      //
+      // Note that we can be invoked in two ways:
+      //    - If the user right-clicks on the Recipe tree and selects "Brew It" then we first need to set the current
+      //      Recipe to the one chosen in the tree
+      //    - If the user clicks on the "Grain 2 Glass" icon, we just use the current recipe
+      //
+      Recipe * recipe = this->getSelectedRecipe().get();
       if (!recipe) {
+         recipe = this->m_recipeObs;
+      } else if (recipe != this->m_recipeObs) {
+         this->m_self.setRecipe(recipe);
+      }
+
+      if (!recipe) {
+         // I think this is only possible if there are no Recipes at all, but we might as well cover al the bases.
          return nullptr;
       }
 
-      // Make sure everything is properly set and selected
-      if (recipe.get() != this->m_recipeObs) {
-         this->m_self.setRecipe(recipe.get());
-      }
-
       auto brewLog = std::make_shared<BrewLog>(*recipe);
-      brewLog->populateNote(recipe.get());
+      brewLog->populateNote(recipe);
       brewLog->setBrewDate();
       ObjectStoreWrapper::insert(brewLog);
 
@@ -827,12 +831,12 @@ public:
    std::unique_ptr<AlcoholTool               > m_alcoholTool           ;
    std::unique_ptr<AncestorDialog            > m_ancestorDialog        ;
    std::unique_ptr<BtDatePopup               > m_btDatePopup           ;
-   std::unique_ptr<ConverterTool             > m_converterTool         ;
+   std::unique_ptr<UnitConversionTool        > m_unitConversionTool    ;
    std::unique_ptr<HelpDialog                > m_helpDialog            ;
    std::unique_ptr<HydrometerTool            > m_hydrometerTool        ;
    std::unique_ptr<MashDesigner              > m_mashDesigner          ;
    std::unique_ptr<MashWizard                > m_mashWizard            ;
-   std::unique_ptr<OgAdjuster                > m_ogAdjuster            ;
+   std::unique_ptr<OgCorrectionTool          > m_ogCorrectionTool      ;
    std::unique_ptr<OptionDialog              > m_optionDialog          ;
    std::unique_ptr<PitchDialog               > m_pitchDialog           ;
    std::unique_ptr<PrimingDialog             > m_primingDialog         ;
@@ -1164,7 +1168,7 @@ void MainWindow::setupRanges() {
    return;
 }
 
-// Anything resulting in a restoreState() should go in here
+// Anything resulting in a restoreState() (see PersistentSettings::restoreUiState) should go in here
 void MainWindow::restoreSavedState() {
 
    // If we saved a size the last time we ran, use it
@@ -1172,7 +1176,7 @@ void MainWindow::restoreSavedState() {
        PersistentSettings::restoreUiState (PersistentSettings::Names::windowState, *this, BtString::EMPTY_STR);
    } else {
       // otherwise, guess a reasonable size at 1/4 of the screen.
-      QScreen * screen = this->screen();
+      QScreen const * screen = this->screen();
       QRect const desktop = screen->availableGeometry();
       int const width = desktop.width();
       int const height = desktop.height();
@@ -1187,7 +1191,7 @@ void MainWindow::restoreSavedState() {
    if (PersistentSettings::contains_ck(PersistentSettings::Names::recipeKey)) {
       key = PersistentSettings::value_ck(PersistentSettings::Names::recipeKey).toInt();
    } else {
-      auto firstRecipeWeFind = ObjectStoreTyped<Recipe>::getInstance().findFirstMatching(
+      auto const firstRecipeWeFind = ObjectStoreTyped<Recipe>::getInstance().findFirstMatching(
          // This trivial lambda gives us the first recipe in the list, if there is one
          []([[maybe_unused]] std::shared_ptr<Recipe> obj) {return true;}
       );
@@ -1245,7 +1249,8 @@ void MainWindow::restoreSavedState() {
    this->        boilStepsWidget->restoreUiState(PersistentSettings::Names::        boilStepTableWidget_headerState, PersistentSettings::Sections::MainWindow);
    this->fermentationStepsWidget->restoreUiState(PersistentSettings::Names::fermentationStepTableWidget_headerState, PersistentSettings::Sections::MainWindow);
 
-   PersistentSettings::restoreGeometry(PersistentSettings::Names::geometry_stockWindow, *this->pimpl->m_stockWindow);
+   PersistentSettings::restoreGeometry(PersistentSettings::Names::geometry_optionsDialog, *this->pimpl->m_optionDialog);
+   PersistentSettings::restoreGeometry(PersistentSettings::Names::geometry_stockWindow  , *this->pimpl->m_stockWindow);
    this->pimpl->m_stockWindow->restoreUiState();
    return;
 }
@@ -1263,7 +1268,7 @@ void MainWindow::setupTriggers() {
    connect(actionCopySelected              , &QAction::triggered, this                                      , &MainWindow::copySelected          ); // > Edit > Copy Selected
    connect(actionUndo                      , &QAction::triggered, this                                      , &MainWindow::editUndo              ); // > Edit > Undo
    connect(actionRedo                      , &QAction::triggered, this                                      , &MainWindow::editRedo              ); // > Edit > Redo
-   connect(actionOptions                   , &QAction::triggered, this->pimpl->m_optionDialog.get()         , &OptionDialog::show                ); // > Edit > Options
+   connect(actionOptions                   , &QAction::triggered, this->pimpl->m_optionDialog.get()         , &OptionDialog::display             ); // > Edit > Options
    this->setUndoRedoEnable();
    connect(actionEquipments                , &QAction::triggered, this->pimpl->m_equipmentCatalog.get()     , &QWidget::show                     ); // > View > Equipments
    connect(actionMashes                    , &QAction::triggered, this->pimpl->m_mashCatalog.get()          , &QWidget::show                     ); // > View > Mash Profiles
@@ -1277,20 +1282,20 @@ void MainWindow::setupTriggers() {
    connect(actionYeasts                    , &QAction::triggered, this->pimpl->m_yeastCatalog.get()         , &QWidget::show                     ); // > View > Yeasts
    connect(actionSalts                     , &QAction::triggered, this->pimpl->m_saltCatalog.get()          , &QWidget::show                     ); // > View > Salts
    connect(actionWaters                    , &QAction::triggered, this->pimpl->m_waterCatalog.get()         , &QWidget::show                     ); // > View > Waters
-   connect(actionInventory                 , &QAction::triggered, this->pimpl->m_stockWindow.get()      , &QWidget::show                     ); // > View > Inventory
+   connect(actionInventory                 , &QAction::triggered, this->pimpl->m_stockWindow.get()          , &QWidget::show                     ); // > View > Inventory
 //   connect( actionManual, &QAction::triggered, this, &MainWindow::openManual);                                               // > About > Manual
    connect(actionScale_Recipe              , &QAction::triggered, this->pimpl->m_recipeScaler.get()         , &QWidget::show                     ); // > Tools > Scale Recipe
    connect(action_recipeToTextClipboard    , &QAction::triggered, this->pimpl->m_recipeFormatter.get()      , &RecipeFormatter::toTextClipboard  ); // > Tools > Recipe to Clipboard as Text
-   connect(actionConvert_Units             , &QAction::triggered, this->pimpl->m_converterTool.get()        , &QWidget::show                     ); // > Tools > Convert Units
+   connect(actionUnitConversionTool        , &QAction::triggered, this->pimpl->m_unitConversionTool.get()   , &QWidget::show                     ); // > Tools > Unit Conversion Tool
    connect(actionHydrometer_Temp_Adjustment, &QAction::triggered, this->pimpl->m_hydrometerTool.get()       , &QWidget::show                     ); // > Tools > Hydrometer Temp Adjustment
    connect(actionAlcohol_Percentage_Tool   , &QAction::triggered, this->pimpl->m_alcoholTool.get()          , &QWidget::show                     ); // > Tools > Alcohol
-   connect(actionOG_Correction_Help        , &QAction::triggered, this->pimpl->m_ogAdjuster.get()           , &QWidget::show                     ); // > Tools > OG Correction Help
+   connect(actionOriginalGravityCorrectionTool, &QAction::triggered, this->pimpl->m_ogCorrectionTool.get()  , &QWidget::show                     ); // > Tools > Original Gravity Correction Tool
    connect(actionPriming_Calculator        , &QAction::triggered, this->pimpl->m_primingDialog.get()        , &QWidget::show                     ); // > Tools > Priming Calculator
    connect(actionStrikeWater_Calculator    , &QAction::triggered, this->pimpl->m_strikeWaterDialog.get()    , &QWidget::show                     ); // > Tools > Strike Water Calculator
    connect(actionRefractometer_Tools       , &QAction::triggered, this->pimpl->m_refractoDialog.get()       , &QWidget::show                     ); // > Tools > Refractometer Tools
    connect(actionPitch_Rate_Calculator     , &QAction::triggered, this                                      , &MainWindow::showPitchDialog       ); // > Tools > Pitch Rate Calculator
    connect(actionTimers                    , &QAction::triggered, this->pimpl->m_timerMainDialog.get()      , &QWidget::show                     ); // > Tools > Timers
-   connect(actionWaterProfileAdjustmentTool, &QAction::triggered, this                                      , &MainWindow::showWaterProfileAdjustmentTool); // > Tools > Water Chemistry
+   connect(actionWaterProfileAdjustmentTool, &QAction::triggered, this                              , &MainWindow::showWaterProfileAdjustmentTool); // > Tools > Water Chemistry
    connect(actionAncestors                 , &QAction::triggered, this                                      , &MainWindow::setAncestor           ); // > Tools > Ancestors
    connect(actionDeleteSelected            , &QAction::triggered, this                                      , &MainWindow::deleteSelected        );
    connect(action_brewit                   , &QAction::triggered, this                                      , &MainWindow::brewItHelper          );
@@ -1299,13 +1304,12 @@ void MainWindow::setupTriggers() {
 
    // postgresql cannot backup or restore yet. I would like to find some way
    // around this, but for now just disable
-   if ( Database::instance().dbType() == Database::DbType::PGSQL ) {
-      actionBackup_Database->setEnabled(false);                                                                         // > File > Database > Backup
-      actionRestore_Database->setEnabled(false);                                                                        // > File > Database > Restore
-   }
-   else {
-      connect( actionBackup_Database, &QAction::triggered, this, &MainWindow::backup );                                 // > File > Database > Backup
-      connect( actionRestore_Database, &QAction::triggered, this, &MainWindow::restoreFromBackup );                     // > File > Database > Restore
+   if (Database::instance().dbType() == Database::DbType::PGSQL) {
+      actionBackup_Database->setEnabled(false);                                                     // > File > Database > Backup
+      actionRestore_Database->setEnabled(false);                                                    // > File > Database > Restore
+   } else {
+      connect(actionBackup_Database , &QAction::triggered, this, &MainWindow::backup           );   // > File > Database > Backup
+      connect(actionRestore_Database, &QAction::triggered, this, &MainWindow::restoreFromBackup);   // > File > Database > Restore
    }
    return;
 }
@@ -1319,11 +1323,11 @@ void MainWindow::setupClicks() {
    // program.  This will force a core dump when the warning occurs, and then, from the core file, you can see the call
    // stack.
    //
-   connect(this->   equipmentButton       , &QAbstractButton::clicked, this, &MainWindow::editRecipeEquipment   );
-   connect(this->       styleButton       , &QAbstractButton::clicked, this, &MainWindow::editRecipeStyle       );
-   connect(this->        mashButton       , &QAbstractButton::clicked, this, &MainWindow::editRecipeMash        );
-   connect(this->        boilButton       , &QAbstractButton::clicked, this, &MainWindow::editRecipeBoil        );
-   connect(this->fermentationButton       , &QAbstractButton::clicked, this, &MainWindow::editRecipeFermentation);
+   connect(this->pushButton_editEquipment   , &QAbstractButton::clicked, this, &MainWindow::editRecipeEquipment   );
+   connect(this->pushButton_editStyle       , &QAbstractButton::clicked, this, &MainWindow::editRecipeStyle       );
+   connect(this->pushButton_editMash        , &QAbstractButton::clicked, this, &MainWindow::editRecipeMash        );
+   connect(this->pushButton_editBoil        , &QAbstractButton::clicked, this, &MainWindow::editRecipeBoil        );
+   connect(this->pushButton_editFermentation, &QAbstractButton::clicked, this, &MainWindow::editRecipeFermentation);
 
    connect(this->pushButton_addFerm       , &QAbstractButton::clicked, this->pimpl-> m_fermentableCatalog.get(), &QWidget::show);
    connect(this->pushButton_addHop        , &QAbstractButton::clicked, this->pimpl->         m_hopCatalog.get(), &QWidget::show);
@@ -1422,7 +1426,7 @@ void MainWindow::setAncestor() {
 // Can handle null recipes.
 void MainWindow::setRecipe(Recipe * recipe) {
    if (!recipe) {
-      // This is a coding error, but we can recover by bailing out here
+      // This is a coding error (unless maybe there are no recipes), but we can recover by bailing out here
       qWarning() << Q_FUNC_INFO << "Null Recipe!";
       qWarning().noquote() << Q_FUNC_INFO << Logging::getStackTrace();
       return;
@@ -1438,7 +1442,7 @@ void MainWindow::setRecipe(Recipe * recipe) {
    // Make sure this MainWindow is paying attention...
    if (this->pimpl->m_recipeObs) {
       disconnect(this->pimpl->m_recipeObs, nullptr, this, nullptr);
-      auto boil = this->pimpl->m_recipeObs->boil();
+      auto const boil = this->pimpl->m_recipeObs->boil();
       if (boil) {
          disconnect(boil.get(), nullptr, this, nullptr);
       }
@@ -1460,35 +1464,29 @@ void MainWindow::setRecipe(Recipe * recipe) {
    this->pimpl->m_mashWizard->setRecipe(recipe);
    brewDayScrollWidget->setRecipe(recipe);
    this->pimpl->m_recipeFormatter->setRecipe(recipe);
-   this->pimpl->m_ogAdjuster->setRecipe(recipe);
+   this->pimpl->m_ogCorrectionTool->setRecipe(recipe);
    recipeExtrasWidget->setRecipe(recipe);
    this->pimpl->m_mashDesigner->setRecipe(recipe);
-   this->equipmentButton->setRecipe(recipe);
    this->equipmentComboBox->setItem(recipe->equipment());
    if (recipe->equipment()) {
       this->pimpl->m_equipmentEditor->setEditItem(recipe->equipment());
    }
-   this->styleButton->setRecipe(recipe);
    this->styleComboBox->setItem(recipe->style());
    if (recipe->style()) {
       this->pimpl->m_styleEditor->setEditItem(recipe->style());
    }
 
    //
-   // Note that on mashButton, boilButton etc, we want to call setRecipe rather than setMash, setBoil etc.  This means
-   // the button will automatically get updated if/when the recipe's mash/boil/etc changes.  Same goes for
-   // mashStepsWidget, boilStepsWidget, etc.
+   // Note that on mashStepsWidget, boilStepsWidget etc, we want to call setRecipe rather than setMash, setBoil etc.
+   // This means they automatically get updated if/when the recipe's mash/boil/etc changes.
    //
 
-   this->mashButton->setRecipe(recipe);
    this->mashComboBox->setItem(recipe->mash());
    this->mashStepsWidget->setRecipe(recipe);
 
-   this->boilButton->setRecipe(recipe);
    this->boilComboBox->setItem(recipe->boil());
    this->boilStepsWidget->setRecipe(recipe);
 
-   this->fermentationButton->setRecipe(recipe);
    this->fermentationComboBox->setItem(recipe->fermentation());
    this->fermentationStepsWidget->setRecipe(recipe);
 
@@ -1511,15 +1509,18 @@ void MainWindow::setRecipe(Recipe * recipe) {
    // causes this signal to be slotted, which then causes showChanges() to be
    // called.
    connect(this->pimpl->m_recipeObs, &NamedEntity::changed, this, &MainWindow::recipeChanged);
-   auto boil = this->pimpl->m_recipeObs->boil();
+   auto const boil = this->pimpl->m_recipeObs->boil();
    if (boil) {
       connect(boil.get(), &NamedEntity::changed, this, &MainWindow::recipeChanged);
    }
 
-   QModelIndex rIdx = treeView_recipe->findElement(this->pimpl->m_recipeObs);
+   QModelIndex const rIdx = treeView_recipe->findElement(this->pimpl->m_recipeObs);
    this->setTreeSelection(rIdx);
 
    this->showChanges();
+
+   emit newRecipeSelected();
+
    return;
 }
 
@@ -1854,10 +1855,6 @@ void MainWindow::updateEquipmentInUi() {
    return;
 }
 
-//
-// Note that mashButton, boilButton, fermentationButton do the right thing and update themselves based on signals.  So
-// we just have to do the combo boxes here.
-//
 void MainWindow::updateMashInUi        () { if (this->pimpl->m_recipeObs) { this->        mashComboBox->setItem(this->pimpl->m_recipeObs->        mash()); } return; }
 void MainWindow::updateBoilInUi        () { if (this->pimpl->m_recipeObs) { this->        boilComboBox->setItem(this->pimpl->m_recipeObs->        boil()); } return; }
 void MainWindow::updateFermentationInUi() { if (this->pimpl->m_recipeObs) { this->fermentationComboBox->setItem(this->pimpl->m_recipeObs->fermentation()); } return; }
@@ -1902,11 +1899,8 @@ void MainWindow::droppedRecipeEquipment(Equipment * kitRaw) {
       // setMashTunSpecificHeat_calGC() on the mash.)
       new SimpleUndoableUpdate(*this->pimpl->m_recipeObs, TYPE_INFO(Recipe, batchSize_l), kit->fermenterBatchSize_l(), tr("Change Batch Size"), equipmentUpdate);
 
-      auto boil = this->pimpl->m_recipeObs->nonOptBoil();
+      auto const boil = this->pimpl->m_recipeObs->nonOptBoil();
       new SimpleUndoableUpdate(*boil, TYPE_INFO(Boil, preBoilSize_l), kit->kettleBoilSize_l(), tr("Change Boil Size"), equipmentUpdate);
-      if (kit->boilTime_min()) {
-         new SimpleUndoableUpdate(*boil, TYPE_INFO(Boil, boilTime_mins), *kit->boilTime_min(), tr("Change Boil Time"), equipmentUpdate);
-      }
    }
 
    // This will do the equipment update and any related updates - see above
@@ -2236,20 +2230,19 @@ std::shared_ptr<Recipe>  MainWindow::newRecipe() {
 
    // Set the following stuff so everything appears nice
    // and the calculations don't divide by zero... things like that.
-   newRec ->setBatchSize_l   (PersistentSettings::value_ck(PersistentSettings::Names::defaultBatchSize_l  , 18.93).toDouble());
-   newBoil->setPreBoilSize_l (PersistentSettings::value_ck(PersistentSettings::Names::defaultPreBoilSize_l, 23.47).toDouble());
-   newRec ->setEfficiency_pct(PersistentSettings::value_ck(PersistentSettings::Names::defaultEfficiency   , 70.0 ).toDouble());
+   newRec ->setBatchSize_l   (PersistentSettings::value_ck(PersistentSettings::Names::defaultBatchSize_l   , Recipe::default_batchSize_l).toDouble());
+   newBoil->setPreBoilSize_l (PersistentSettings::value_ck(PersistentSettings::Names::defaultPreBoilSize_l , Boil::default_preBoilSize_l).toDouble());
+   newRec ->setEfficiency_pct(PersistentSettings::value_ck(PersistentSettings::Names::defaultEfficiency_pct, Recipe::default_efficiency_pct).toDouble());
+   newBoil->setBoilTime_mins (PersistentSettings::value_ck(PersistentSettings::Names::defaultBoilTime_mins , Boil::default_boilTime_mins).toDouble());
 
    // We need a valid key, so insert the recipe before we add equipment
-   QVariant const defEquipKey = PersistentSettings::value_ck(PersistentSettings::Names::defaultEquipmentKey, -1);
-   if (defEquipKey != -1) {
-      auto equipment = ObjectStoreWrapper::getById<Equipment>(defEquipKey.toInt());
+   if (QVariant const defEquipKey = PersistentSettings::value_ck(PersistentSettings::Names::defaultEquipmentKey, -1);
+       defEquipKey != -1) {
       // I really want to do this before we've written the object to the
       // database
-      if ( equipment ) {
+      if (auto const equipment = ObjectStoreWrapper::getById<Equipment>(defEquipKey.toInt())) {
          newRec->setBatchSize_l( equipment->fermenterBatchSize_l() );
          newBoil->setPreBoilSize_l( equipment->kettleBoilSize_l() );
-         newBoil->setBoilTime_mins( equipment->boilTime_min().value_or(Equipment::default_boilTime_mins) );
          newRec->setEquipment(equipment);
       }
    }
@@ -2437,7 +2430,8 @@ void MainWindow::closeEvent(QCloseEvent* /*event*/) {
    this->        boilStepsWidget->saveUiState(PersistentSettings::Names::        boilStepTableWidget_headerState, PersistentSettings::Sections::MainWindow);
    this->fermentationStepsWidget->saveUiState(PersistentSettings::Names::fermentationStepTableWidget_headerState, PersistentSettings::Sections::MainWindow);
 
-   PersistentSettings::saveGeometry(PersistentSettings::Names::geometry_stockWindow, *this->pimpl->m_stockWindow);
+   PersistentSettings::saveGeometry(PersistentSettings::Names::geometry_optionsDialog, *this->pimpl->m_optionDialog);
+   PersistentSettings::saveGeometry(PersistentSettings::Names::geometry_stockWindow  , *this->pimpl->m_stockWindow);
    this->pimpl->m_stockWindow->saveUiState();
 
    // After unloading the database, can't make any more queries to it, so first

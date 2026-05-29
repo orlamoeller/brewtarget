@@ -173,9 +173,7 @@
 #                     lumped in with -Wall.)
 #
 #   - prefer_static   We want to try static linking before shared linking because it makes packaging a lot easier on
-#                     Windows and Mac.   NB: This requires meson 0.63.0 or newer.  Current version of meson in Ubuntu
-#                     22.04 repositories is 0.61.2.  For the moment, we do static setting on a library-by-library basis
-#                     (by setting 'static : true' on all the dependency() calls.
+#                     Windows and Mac.   NB: This requires meson 0.63.0 or newer.
 #
 #   - buildtype   For the moment at least, I'm not making a distinction between debug and release builds.  Unless we
 #                 find some compelling performance etc reason to do otherwise, my instinct is to have as much diagnostic
@@ -189,12 +187,12 @@
 #
 #
 project('brewtarget', 'cpp',
-        version: '5.1.0',
+        version: '5.1.1',
         license: 'GPL-3.0-or-later',
         meson_version: '>=0.63.0',
         default_options : ['cpp_std=c++23',
                            'warning_level=3',
-#                           'prefer_static=true',  See comment above for why this is commented-out for now
+                           'prefer_static=true',
                            'buildtype=plain'])
 
 #
@@ -796,9 +794,9 @@ commonSourceFiles = files([
    'src/serialization/xml/XmlRecordDefinition.cpp',
    'src/tools/AlcoholTool.cpp',
    'src/tools/AncestorDialog.cpp',
-   'src/tools/ConverterTool.cpp',
+   'src/tools/UnitConversionTool.cpp',
    'src/tools/HydrometerTool.cpp',
-   'src/tools/OgAdjuster.cpp',
+   'src/tools/OgCorrectionTool.cpp',
    'src/tools/PitchDialog.cpp',
    'src/tools/PrimingDialog.cpp',
    'src/tools/RefractoDialog.cpp',
@@ -1048,9 +1046,9 @@ mocHeaders = files([
    'src/qtModels/tableModels/YeastTableModel.h',
    'src/tools/AlcoholTool.h',
    'src/tools/AncestorDialog.h',
-   'src/tools/ConverterTool.h',
+   'src/tools/UnitConversionTool.h',
    'src/tools/HydrometerTool.h',
-   'src/tools/OgAdjuster.h',
+   'src/tools/OgCorrectionTool.h',
    'src/tools/PitchDialog.h',
    'src/tools/PrimingDialog.h',
    'src/tools/RefractoDialog.h',
@@ -1112,7 +1110,7 @@ uiFiles = files([
    'ui/mashStepEditor.ui',
    'ui/mashWizard.ui',
    'ui/miscEditor.ui',
-   'ui/ogAdjuster.ui',
+   'ui/ogCorrectionTool.ui',
    'ui/optionsDialog.ui',
    'ui/pitchDialog.ui',
    'ui/primingDialog.ui',

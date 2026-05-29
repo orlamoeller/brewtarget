@@ -282,7 +282,7 @@ void BrewLog::populateNote(Recipe * parent) {
    this->setFinalVolume_l    (parent->finalVolume_l());
 
    if (auto const equip = parent->equipment()) {
-      double const boilTime_mins = parent->boil() ? parent->boil()->boilTime_mins() : Equipment::default_boilTime_mins;
+      double const boilTime_mins = parent->boil() ? parent->boil()->boilTime_mins() : Boil::default_boilTime_mins;
       this->setBoilOff_l(
          equip->kettleEvaporationPerHour_l().value_or(Equipment::default_kettleEvaporationPerHour_l) * (boilTime_mins/60.0)
       );
@@ -601,7 +601,8 @@ double BrewLog::calculateABV_pct() {
 }
 
 double BrewLog::calculateActualABV_pct() {
-   double const abv_pct = Algorithms::abvFromOgAndFg(this->m_og, this->m_fg);
+   double const abv_pct = this->m_og > this->m_fg ?
+      Algorithms::abvFromOgAndFg(this->m_og, this->m_fg) : std::numeric_limits<double>::quiet_NaN();
    this->setABV(abv_pct);
    return abv_pct;
 }

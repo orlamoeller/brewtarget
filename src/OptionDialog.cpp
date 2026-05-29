@@ -1,5 +1,5 @@
 /*╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
- * OptionDialog.cpp is part of Brewtarget, and is copyright the following authors 2009-2025:
+ * OptionDialog.cpp is part of Brewtarget, and is copyright the following authors 2009-2026:
  *   • Brian Rower <brian.rower@gmail.com>
  *   • Daniel Pettersson <pettson81@gmail.com>
  *   • Greg Meess <Daedalus12@gmail.com>
@@ -454,8 +454,8 @@ public:
     */
    void showChanges() {
       // Set the right language
-      int index = this->m_self.comboBox_lang->findData(Localization::getCurrentLanguage());
-      if (index >= 0) {
+      if (int const index = this->m_self.comboBox_lang->findData(Localization::getCurrentLanguage());
+          index >= 0) {
          this->m_self.comboBox_lang->setCurrentIndex(index);
       }
 
@@ -524,8 +524,8 @@ public:
 
       // Database stuff -- this looks weird, but trust me. We want SQLITE to be
       // the default for this field
-      int tmp = PersistentSettings::value_ck(PersistentSettings::Names::dbType,
-                                             static_cast<int>(Database::DbType::SQLITE)).toInt() - 1;
+      int const tmp = PersistentSettings::value_ck(PersistentSettings::Names::dbType,
+                                                   static_cast<int>(Database::DbType::SQLITE)).toInt() - 1;
       this->m_self.comboBox_engine->setCurrentIndex(tmp);
 
       this->input_pgHostname.setText(PersistentSettings::value_ck(PersistentSettings::Names::dbHostname, "localhost").toString());
@@ -566,15 +566,19 @@ public:
       //
       this->m_self.lineEdit_defaultBatchSize_l->setQuantity(
          PersistentSettings::value_ck(PersistentSettings::Names::defaultBatchSize_l,
-                                      QVariant::fromValue(18.93)).toDouble()  // 5 gallons
+                                      QVariant::fromValue(Recipe::default_batchSize_l)).toDouble()
       );
       this->m_self.lineEdit_defaultPreBoilSize_l->setQuantity(
          PersistentSettings::value_ck(PersistentSettings::Names::defaultPreBoilSize_l,
-                                      QVariant::fromValue(23.47)).toDouble()  // 6.2 gallons
+                                      QVariant::fromValue(Boil::default_preBoilSize_l)).toDouble()
+      );
+      this->m_self.lineEdit_defaultBoilTime->setQuantity(
+         PersistentSettings::value_ck(PersistentSettings::Names::defaultBoilTime_mins,
+                                      QVariant::fromValue(Boil::default_boilTime_mins)).toDouble()
       );
       this->m_self.lineEdit_defaultEfficiency->setQuantity(
-         PersistentSettings::value_ck(PersistentSettings::Names::defaultEfficiency,
-                                      QVariant::fromValue(70.0)).toDouble()
+         PersistentSettings::value_ck(PersistentSettings::Names::defaultEfficiency_pct,
+                                      QVariant::fromValue(Recipe::default_efficiency_pct)).toDouble()
       );
 
       return;
@@ -585,7 +589,9 @@ public:
                                     this->m_self.lineEdit_defaultBatchSize_l->getNonOptCanonicalAmt().quantity);
       PersistentSettings::insert_ck(PersistentSettings::Names::defaultPreBoilSize_l,
                                     this->m_self.lineEdit_defaultPreBoilSize_l->getNonOptCanonicalAmt().quantity);
-      PersistentSettings::insert_ck(PersistentSettings::Names::defaultEfficiency,
+      PersistentSettings::insert_ck(PersistentSettings::Names::defaultBoilTime_mins,
+                                    this->m_self.lineEdit_defaultBoilTime->getNonOptCanonicalAmt().quantity);
+      PersistentSettings::insert_ck(PersistentSettings::Names::defaultEfficiency_pct,
                                     this->m_self.lineEdit_defaultEfficiency->getNonOptValue<double>());
       return;
    }
@@ -652,6 +658,7 @@ OptionDialog::OptionDialog(QWidget * parent) :
    // Set up other smart fields
    SMART_FIELD_INIT_FS(OptionDialog, label_defaultBatchSize_l  , lineEdit_defaultBatchSize_l  , double, Measurement::PhysicalQuantity::Volume, 2);
    SMART_FIELD_INIT_FS(OptionDialog, label_defaultPreBoilSize_l, lineEdit_defaultPreBoilSize_l, double, Measurement::PhysicalQuantity::Volume, 2);
+   SMART_FIELD_INIT_FS(OptionDialog, label_defaultBoilTime     , lineEdit_defaultBoilTime     , double, Measurement::PhysicalQuantity::Time  , 0);
    SMART_FIELD_INIT_FS(OptionDialog, label_defaultEfficiency   , lineEdit_defaultEfficiency   , double, NonPhysicalQuantity::Percentage      , 1);
 
    this->pimpl->configure_formulaCombos();
@@ -719,10 +726,11 @@ void OptionDialog::connect_signals() {
 }
 
 void OptionDialog::signalAncestors() {
-   emit showAllAncestors(checkBox_alwaysShowSnaps->checkState() == Qt::Checked);
+   emit ancestorsAlwaysShown(checkBox_alwaysShowSnaps->checkState() == Qt::Checked);
+   return;
 }
 
-void OptionDialog::show() {
+void OptionDialog::display() {
    this->pimpl->showChanges();
    this->setVisible(true);
    return;
@@ -756,8 +764,8 @@ void OptionDialog::setLogDir() {
 }
 
 void OptionDialog::resetToDefault() {
-   Database::DbType engine = static_cast<Database::DbType>(comboBox_engine->currentData().toInt());
-   if (engine == Database::DbType::PGSQL) {
+   if (auto const engine = static_cast<Database::DbType>(comboBox_engine->currentData().toInt());
+       engine == Database::DbType::PGSQL) {
       this->pimpl->input_pgHostname.setText(QString("localhost"));
       this->pimpl->input_pgPortNum.setText(QString("5432"));
       this->pimpl->input_pgSchema.setText(QString("public"));
@@ -795,8 +803,8 @@ void OptionDialog::changeEvent(QEvent * e) {
 
 void OptionDialog::setEngine([[maybe_unused]] int selected) {
 
-   QVariant data = comboBox_engine->currentData();
-   Database::DbType newEngine = static_cast<Database::DbType>(data.toInt());
+   QVariant const data = comboBox_engine->currentData();
+   auto const newEngine = static_cast<Database::DbType>(data.toInt());
 
    this->pimpl->setDbDialog(newEngine);
    this->testRequired();
@@ -804,30 +812,31 @@ void OptionDialog::setEngine([[maybe_unused]] int selected) {
 }
 
 void OptionDialog::testConnection() {
-   bool success;
-   QString hostname, schema, database, username, password;
-   int port;
-
-   Database::DbType newType = static_cast<Database::DbType>(comboBox_engine->currentData().toInt());
+   auto const newType = static_cast<Database::DbType>(comboBox_engine->currentData().toInt());
    // Do nothing if nothing is required.
    if (this->pimpl->dbConnectionTestState == NO_CHANGE || this->pimpl->dbConnectionTestState == TEST_PASSED) {
       return;
    }
 
+   bool success;
    switch (newType) {
       case Database::DbType::PGSQL:
-         hostname = this->pimpl->input_pgHostname.text();
-         schema   = this->pimpl->input_pgSchema.text();
-         database = this->pimpl->input_pgDbName.text();
-         username = this->pimpl->input_pgUsername.text();
-         password = this->pimpl->input_pgPassword.text();
-         port     = this->pimpl->input_pgPortNum.text().toInt();
+         {
+            QString const hostname = this->pimpl->input_pgHostname.text();
+            QString const schema   = this->pimpl->input_pgSchema.text();
+            QString const database = this->pimpl->input_pgDbName.text();
+            QString const username = this->pimpl->input_pgUsername.text();
+            QString const password = this->pimpl->input_pgPassword.text();
+            int     const port     = this->pimpl->input_pgPortNum.text().toInt();
 
-         success = Database::verifyDbConnection(newType, hostname, port, schema, database, username, password);
+            success = Database::verifyDbConnection(newType, hostname, port, schema, database, username, password);
+         }
          break;
       default:
-         hostname = QString("%1/%2").arg(this->pimpl->input_userDataDir.text()).arg("database.sqlite");
-         success = Database::verifyDbConnection(newType, hostname);
+         {
+            QString const hostname = QString("%1/%2").arg(this->pimpl->input_userDataDir.text()).arg("database.sqlite");
+            success = Database::verifyDbConnection(newType, hostname);
+         }
    }
 
    if (success) {
