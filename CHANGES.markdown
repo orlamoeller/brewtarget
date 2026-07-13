@@ -14,17 +14,30 @@ happens, so I'm now setting it to a slightly arbitrary time early in the morning
 * Shopping Lists
 * We'll list other new features here...
 
+## v5.1.2
+Bug fixes.
+
+### New Features
+None
+
+### Bug Fixes
+* Brewtarget fails to update PostgreSQL database schema [1126](https://github.com/Brewtarget/brewtarget/issues/1126)
+
+### Release Timestamp
+Wed, 10 Jun 2026 05:01:02 +0100
+
 ## v5.1.1
-Bug fixes and minor enhancements.
+Bug fixes.
 
 ### New Features
 None
 
 ### Bug Fixes
 * Options dialog does not remember its size [1118](https://github.com/Brewtarget/brewtarget/issues/1118)
+* Mash wizard crashes every time now. version 5.1.0 [1123](https://github.com/Brewtarget/brewtarget/issues/1123)
 
 ### Release Timestamp
-Fri, 15 May 2026 05:01:01 +0100
+Thu, 4 Jun 2026 05:01:01 +0100
 
 ## v5.1.0
 Improvements to Folders, plus bug fixes and minor enhancements.  In particular:
