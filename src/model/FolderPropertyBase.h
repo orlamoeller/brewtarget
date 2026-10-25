@@ -31,9 +31,10 @@ template<class NE> class Folder;
 //========================================== Start of property name constants ==========================================
 // See comment in model/NamedEntity.h
 #define AddPropertyName(property) namespace PropertyNames::FolderPropertyBase { inline BtStringConst const property{#property}; }
-AddPropertyName(containedInFolder   )
-AddPropertyName(containedInFolderId )
-AddPropertyName(containedInFolderRaw)
+AddPropertyName(containedInFolder    )
+AddPropertyName(containedInFolderId  )
+AddPropertyName(containedInFolderPath)
+AddPropertyName(containedInFolderRaw )
 #undef AddPropertyName
 //=========================================== End of property name constants ===========================================
 //======================================================================================================================
@@ -97,6 +98,32 @@ private:
 
    explicit FolderPropertyBase(NamedParameterBundle const & namedParameterBundle) :
       SET_REGULAR_FROM_NPB(m_containedInFolderId, namedParameterBundle, PropertyNames::FolderPropertyBase::containedInFolderId, -1) {
+      //
+      // If we have a folder but are not ourselves a folder then, depending on where we're being constructed from, the
+      // bundle should contain:
+      //   - containedInFolderId but not containedInFolderPath (DB)
+      //   - containedInFolderPath but not containedInFolderId (dotBeer)
+      //   - neither containedInFolderId nor containedInFolderPath (BeerXML, BeerJSON)
+      //
+      // We have a default value (above) for containedInFolderId, so we only need to do special handling here for
+      // containedInFolderPath.
+      //
+      if constexpr (DerivedIsFolder == IsFolder::No) {
+         if (namedParameterBundle.contains(PropertyNames::FolderPropertyBase::containedInFolderPath)) {
+            // It's a bit fiddly to use SET_REGULAR_FROM_NPB_NO_MV here, so we do things manually
+            this->doSetContainedInFolderPath(
+               namedParameterBundle.val<QString>(PropertyNames::FolderPropertyBase::containedInFolderPath)
+            );
+            if (namedParameterBundle.contains(PropertyNames::FolderPropertyBase::containedInFolderId)) {
+               //
+               // This is a coding error, but we can soldier on
+               //
+               qWarning() <<
+                  Q_FUNC_INFO << "Error: both Folder Path and Folder ID set on " << this->derived() <<
+                  ".  This is probably a bug!";
+            }
+         }
+      }
       return;
    }
 
@@ -108,11 +135,11 @@ private:
    ~FolderPropertyBase() = default;
 
 public:
-   FolderType * containedInFolderRaw() const {
+   [[nodiscard]] FolderType * containedInFolderRaw() const {
       return FolderType::getByIdRaw(this->m_containedInFolderId);
    }
 
-   std::shared_ptr<FolderType> containedInFolder() const {
+   [[nodiscard]] std::shared_ptr<FolderType> containedInFolder() const {
       return FolderType::getById(this->m_containedInFolderId);
    }
 
@@ -120,17 +147,37 @@ public:
    void setContainedInFolder(std::shared_ptr<FolderType> const & val) { this->doSetContainedInFolderId(val ? val->key() : -1); }
    void setContainedInFolder(FolderType                  const & val) { this->doSetContainedInFolderId(val->key()); }
 
-   static QString localisedName_containedInFolder  () { return Derived::tr("Contained in Folder"   ); }
-   static QString localisedName_containedInFolderId() { return Derived::tr("Contained in Folder ID"); }
+   static QString localisedName_containedInFolder    () { return Derived::tr("Contained in Folder"   ); }
+   static QString localisedName_containedInFolderId  () { return Derived::tr("Contained in Folder ID"); }
+   static QString localisedName_containedInFolderPath() { return Derived::tr("Contained in Folder Path"); }
 
 protected:
    [[nodiscard]] int doContainedInFolderId() const {
       return this->m_containedInFolderId;
    }
 
+   /**
+    * Note that we can't implement this function here where Derived is a Folder because it would create circular
+    * dependencies, so Folder::containedInFolderId() has the same logic.
+    */
+   [[nodiscard]] QString doContainedInFolderPath() const requires (DerivedIsFolder == IsFolder::No) {
+      Folder<Derived> const * const containedIn = this->containedInFolderRaw();
+      return containedIn ? containedIn->fullPath() : QString{"/"};
+   }
+
    void doSetContainedInFolderId(int const val) {
       this->derived().setAndNotify(PropertyNames::FolderPropertyBase::containedInFolderId, this->m_containedInFolderId, val);
       Q_ASSERT(this->m_containedInFolderId == val);
+      return;
+   }
+
+   /**
+    * Note that we can't implement this function here where Derived is a Folder because it would create circular
+    * dependencies, so Folder::setContainedInFolderPath() has the same logic.
+    */
+   void doSetContainedInFolderPath(QString const & fullPath) requires (DerivedIsFolder == IsFolder::No) {
+      FolderType const * folder = FolderType::ensure(fullPath);
+      this->doSetContainedInFolderId(folder ? folder->key() : -1);
       return;
    }
 
@@ -155,7 +202,13 @@ TypeLookup const FolderPropertyBase<Derived, DerivedIsFolder>::typeLookup {
           PropertyNames::FolderPropertyBase::containedInFolderId,
           FolderPropertyBase::localisedName_containedInFolderId,
           TypeLookupOf<decltype(FolderPropertyBase<Derived>::m_containedInFolderId)>::value
-       )}
+       )},
+      {&PropertyNames::FolderPropertyBase::containedInFolderPath,
+       TypeInfo::construct<MemberFunctionReturnType_t<&Derived::containedInFolderPath>>(
+          PropertyNames::FolderPropertyBase::containedInFolderPath,
+          FolderPropertyBase::localisedName_containedInFolderPath,
+          TypeLookupOf<MemberFunctionReturnType_t<&Derived::containedInFolderPath>>::value
+       )},
    },
    // Parent class lookup: none as we are at the top of this branch of the inheritance tree
    {}
@@ -197,7 +250,8 @@ template <typename T> concept CONCEPT_FIX_UP ValidFolderType = (HasFolder<T> && 
  *        derived classes also need to include the following block (see comment in model/StepBase.h for why):
  *
  *           // See model/FolderPropertyBase.h for info, getters and setters for these properties
- *           Q_PROPERTY(int containedInFolderId        READ containedInFolderId        WRITE setFolderId)
+ *           Q_PROPERTY(int     containedInFolderId     READ containedInFolderId     WRITE setContainedInFolderId  )
+ *           Q_PROPERTY(QString containedInFolderPath   READ containedInFolderPath   WRITE setContainedInFolderPath)
  *
  *        We can't use this macro for Folder<NE> classes because templated classes need their member function
  *        declarations and definitions combined.
@@ -213,9 +267,15 @@ template <typename T> concept CONCEPT_FIX_UP ValidFolderType = (HasFolder<T> && 
                                                                                           \
    public:                                                                                     \
       /*=========================== FB "GETTER" MEMBER FUNCTIONS ===========================*/ \
-      [[nodiscard]] int containedInFolderId() const;                                           \
+      [[nodiscard]] int     containedInFolderId  () const;                                     \
+      /* Strictly this should perhaps be called containedInFolderFullPath, but I think   */    \
+      /* the name is long enough already and not, IMHO, ambiguous.                       */    \
+      /* Returns the full path of the folder in which this item is contained, or "/" if  */    \
+      /* it is not contained in any folder.                                              */    \
+      [[nodiscard]] QString containedInFolderPath() const;                                     \
       /*=========================== FB "SETTER" MEMBER FUNCTIONS ===========================*/ \
-      void setContainedInFolderId(int const val);                                              \
+      void setContainedInFolderId  (int     const   val);                                      \
+      void setContainedInFolderPath(QString const & val);                                      \
       /* We need these to avoid circular dependencies with ObjectStoreWrapper */               \
       static std::shared_ptr<Derived> getById(int const id);                                   \
       static Derived * getByIdRaw(int const id);                                               \
@@ -236,10 +296,11 @@ template <typename T> concept CONCEPT_FIX_UP ValidFolderType = (HasFolder<T> && 
  */
 #define FOLDER_BASE_COMMON_CODE(Derived) \
    /*====================================== FB "GETTER" MEMBER FUNCTIONS ======================================*/ \
-   int Derived::containedInFolderId() const { return this->doContainedInFolderId(); }                             \
+   int Derived::containedInFolderId  () const { return this->doContainedInFolderId(); }                           \
+   QString Derived::containedInFolderPath() const { return this->doContainedInFolderPath(); }                     \
    /*====================================== FB "SETTER" MEMBER FUNCTIONS ======================================*/ \
-   void Derived::setContainedInFolderId(int const val) { this->doSetContainedInFolderId(val); return; }           \
-                                                                                                                  \
+   void Derived::setContainedInFolderId  (int     const   val) { this->doSetContainedInFolderId  (val); return; } \
+   void Derived::setContainedInFolderPath(QString const & val) { this->doSetContainedInFolderPath(val); return; } \
    std::shared_ptr<Derived> Derived::getById(int const id) { return ObjectStoreWrapper::getById<Derived>(id); }   \
    Derived * Derived::getByIdRaw(int const id) { return ObjectStoreWrapper::getByIdRaw<Derived>(id); }            \
 

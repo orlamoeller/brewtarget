@@ -118,6 +118,10 @@ struct CommonContextMenus {
          this->addAndConnect(this->m_menu_primary, this->m_action_merge, &Derived::mergeSelected);
       }
 
+      this->m_menu_primary.addSeparator();
+      this->addAndConnect(this->m_menu_primary, this->m_action_export, &Derived::exportSelected);
+      this->addAndConnect(this->m_menu_primary, this->m_action_import, &Derived::importFromFiles);
+
       if constexpr (std::is_same_v<NE, Recipe>) {
          this->m_menu_primary.addSeparator();
          this->m_menu_primary.addMenu(&this->m_menu_versioning);
@@ -196,7 +200,8 @@ public:
          this->m_action_showStockPurchases.setText(Derived::tr("Show stock purchases"));
       }
 
-      this->m_action_import.setText(Derived::tr("Import (from BeerXML or BeerJSON)"));
+      this->m_action_export.setText(Derived::tr("Export (to dotBeer, BeerXML or BeerJSON)"));
+      this->m_action_import.setText(Derived::tr("Import (from dotBeer, BeerXML or BeerJSON)"));
 
       if constexpr (!std::disjunction_v<std::is_same<NE, Recipe>, std::is_base_of<StockPurchase, NE>>) {
          this->m_action_merge.setText(Derived::tr("Merge selected"));
@@ -214,8 +219,8 @@ public:
 
       if constexpr (!IsVoid<SNE>) {
          if constexpr (std::is_same_v<SNE, BrewLog>) {
-            this->m_action_brewAgain       .setText(Derived::tr("Brew again"            ));
-            this->m_action_changeBrewDate  .setText(Derived::tr("Change date"           ));
+            this->m_action_brewAgain       .setText(Derived::tr("Brew again" ));
+            this->m_action_changeBrewDate  .setText(Derived::tr("Change date"));
          }
          this->m_action_deleteSecondary.setText(Derived::tr("Delete"));
       }
@@ -230,10 +235,24 @@ public:
     * @param selected
     */
    QAction * showContextMenu(QPoint const & point, CommonContextMenuHelper::Selected<NE, SNE> const & selected) {
+
+      // If there are one or more primary items selected, then we must have a first one
+      Q_ASSERT(selected.firstPrimary || 0 == selected.numPrimary);
+      if constexpr (!IsVoid<SNE>) {
+         // If secondary items can exist in this tree/list and one or more are selected, then we must have a first one
+         Q_ASSERT(selected.firstSecondary || 0 == selected.numSecondary);
+      } else {
+         // If secondary items cannot exist in this tree/list, then none can be selected.
+         Q_ASSERT(0 == selected.numSecondary);
+      }
+
       //
       // In principle there are three different menus we could show, depending on whether we want actions for primary
       // item, secondary item or folders.  In practice, for the moment at least, we have the same menu for primary items
       // and folders (with slightly different things enabled) so it's a choice of two.
+      //
+      // We also need to decide what to show/enable when nothing is under the cursor.  Previously we didn't show any
+      // menu, but that, eg, can make it hard to create folders at root level.
       //
       // Strictly, the first check here is not necessary when SNE is void, but adding a compile-time check for that
       // would, in this instance, make things more complicated.
@@ -260,9 +279,11 @@ public:
 
          if constexpr (std::same_as<NE, Recipe>) {
             // You cannot delete a locked recipe
-            this->m_action_delete.setEnabled(selected.numPrimary >= 1 && !selected.firstPrimary->locked());
+            this->m_action_delete.setEnabled((selected.numPrimary >= 1 && !selected.firstPrimary->locked()) ||
+                                             selected.numFolders >= 1);
          } else {
-            this->m_action_delete.setEnabled(selected.numPrimary >= 1);
+            this->m_action_delete.setEnabled(selected.numPrimary >= 1 ||
+                                             selected.numFolders >= 1);
          }
 
          //
@@ -272,7 +293,7 @@ public:
          if constexpr (std::same_as<NE, Recipe>) {
             if (selected.numPrimary > 0) {
                auto const & recipe{selected.firstPrimary};
-
+               this->m_menu_versioning.setEnabled(true);
                // if we have ancestors and are showing them but are not an actual
                // ancestor, then enable hide
                this->m_action_hideAncestors.setEnabled(recipe->hasAncestors() && selected.fpAncestorsVisible);
@@ -282,24 +303,24 @@ public:
                this->m_action_orphanRecipe.setEnabled(recipe->hasAncestors() && !recipe->locked());
                // We don't want to be able to spawn ancestors directly.
                this->m_action_spawnRecipe.setEnabled(!recipe->hasDescendants());
-               // If user has clicked the top-level Item 'Recipes' Once this menu Item will be forever disabled if we don't enable it.
-               this->m_menu_export.setEnabled(true);
                this->m_action_copy.setEnabled(true);
                this->m_action_brewIt.setEnabled(true);
-            } else if (selected.numFolders > 0) {
+               this->m_action_export.setEnabled(true);
+            } else {
+               this->m_menu_versioning.setEnabled(false);
                this->m_action_hideAncestors.setEnabled(false);
                this->m_action_showAncestors.setEnabled(false);
                this->m_action_orphanRecipe.setEnabled(false);
                this->m_action_spawnRecipe.setEnabled(false);
-               this->m_menu_export.setEnabled(false);
                this->m_action_copy.setEnabled(false);
                this->m_action_brewIt.setEnabled(false);
+               this->m_action_export.setEnabled(selected.numFolders > 0);
             }
          }
 
          //
-         // TBD: For the moment, we don't allow multiple selections either to be deleted or to be added to the recipe.  But
-         //      it would not be huge work to fix that if there is user demand for it.
+         // TBD: For the moment, we don't allow multiple selections either to be deleted or to be added to the recipe.
+         //      But it would not be huge work to fix that if there is user demand for it.
          //
          if constexpr (!std::is_same_v<NE, Recipe>) {
             this->m_action_addToRecipe.setEnabled(selected.numPrimary == 1);
@@ -419,9 +440,10 @@ public:
 
    /**
     *
+    * @param baseFolderPath
     * @param items
     */
-   void exportItems(QList<NE const *> const & items) const {
+   void exportItems(QString const & baseFolderPath, QList<NE const *> const & items) const {
       if (items.empty()) {
          // Ideally we should have greyed out export if there was nothing to export, but this is belt-and-braces
          QMessageBox nothingSelectedMessageBox;
@@ -437,7 +459,7 @@ public:
       // TODO: We should allow them to export to DotBeer files though
       //
       if constexpr (!std::is_base_of_v<StockPurchase, NE>) {
-         bool const success = ImportExport::exportToFile(items);
+         bool const success = ImportExport::exportToFile(baseFolderPath, items);
          // We don't need a message box here, as ImportExport will already have shown one
          qDebug() << Q_FUNC_INFO << "Export result:" << success;
       }
@@ -445,6 +467,8 @@ public:
    }
 
    /**
+    * TODO: Currently this is only called from CatalogBase::doDeleteSelected().  We should have
+    *       TreeViewBase::doDeleteSelected() and TreeViewBase::doDeleteItems() use this function too.
     *
     * @param items
     */
@@ -454,6 +478,13 @@ public:
       auto confirmDelete = QMessageBox::NoButton;
 
       for (auto const & item : items) {
+         if constexpr (std::same_as<NE, Recipe>) {
+            // You cannot delete a locked recipe
+            if  (item->locked()) {
+               continue;
+            }
+         }
+
          //
          // If someone tries to delete something that's used in one or more Recipes then we just say it's not allowed.
          // (The alternative would be to check that they are sure and then run through every Recipe removing the item
@@ -603,7 +634,8 @@ public:
             // Before we do that, check whether the items are identical and, if not, give the user a chance to bail.
             //
             QList<BtStringConst const *> propertiesThatDiffer = firstItem->getPropertiesThatDiffer(*lastItem);
-            if (int const numDifferences = propertiesThatDiffer.size(); numDifferences > 0) {
+            if (auto const numDifferences = propertiesThatDiffer.size();
+                numDifferences > 0) {
                //
                // Show the user the list of properties that differ, and their values, and ask them if they really really
                // want to force the merge.  We'll show them how many fields differ in the main message, and then we'll list
@@ -764,10 +796,9 @@ public:
    [[no_unique_address]] std::conditional_t<!std::derived_from<NE, Ingredient>, Empty, QAction> m_action_showStockPurchases;
    [[no_unique_address]] std::conditional_t<std::is_same_v<NE, Recipe>, Empty, QAction> m_action_addToRecipe;
 
-   QMenu m_menu_export;
-   QAction m_action_exportToXmlOrJson;
-
+   QAction m_action_export;
    QAction m_action_import;
+
    [[no_unique_address]] std::conditional_t<
       std::disjunction_v<std::is_same<NE, Recipe>, std::is_base_of<StockPurchase, NE>>, Empty, QAction
    > m_action_merge;

@@ -37,13 +37,15 @@
 #include "model/StockPurchase.h"
 #include "model/Recipe.h"
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_RecipeAdditionFermentableTableModel.cpp"
 #endif
 
 COLUMN_INFOS(
    RecipeAdditionFermentableTableModel,
+   //
+   // *** NB: These need to be in the same order as in the COLUMN_NAMES macro in the header file! ***
    //
    // Note that for Name, we want the name of the contained Fermentable, not the name of the RecipeAdditionFermentable
    //

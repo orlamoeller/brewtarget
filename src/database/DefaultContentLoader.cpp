@@ -34,7 +34,7 @@ namespace {
    char const * const FOLDER_PATH_FOR_SUPPLIED_RECIPES = CONFIG_APPLICATION_NAME_LC;
 }
 
-int constexpr DefaultContentLoader::availableContentVersion = 4;
+int constexpr DefaultContentLoader::availableContentVersion = 5;
 
 DefaultContentLoader::UpdateResult DefaultContentLoader::updateContentIfNecessary(QSqlDatabase & db,
                                                                                   QTextStream  & userMessage) {
@@ -74,17 +74,21 @@ DefaultContentLoader::UpdateResult DefaultContentLoader::updateContentIfNecessar
    //      includes Equipment in a Recipe, where as BeerJSON does not).  Where we have source data in one format, it's
    //      better to retain it in that format than convert it.
    //
-   // So, now we load a sequence of "default content" files, each of which can be BeerXML or BeerJSON.  Each filename
-   // begins "DefaultContentNNN-" where NNN is a unique three-digit number from a sequence starting 001.  So, eg, we can
-   // have:
+   // So, now we load a sequence of "default content" files, each of which can be BeerXML, BeerJSON or dotBeer.  Each
+   // filename begins "DefaultContentNNN-" where NNN is a unique three-digit number from a sequence starting 001.  So,
+   // eg, we can have:
    //    DefaultContent001-OriginalBtContent.xml
    //    DefaultContent002-BJCP_2021_Styles.json
    //    DefaultContent003-Yeasts.json
+   //    DefaultContent004-MoreYeasts.json
+   //    DefaultContent005-Fermentables-Recipes.beer
    //    etc
    //
-   // NOTE that when a new DefaultContentNNN- is added, there are changes to make to the following files:
-   //    meson.build
-   //    CMakeLists.txt
+   // *******************************************************************************************************
+   // * NOTE that when a new DefaultContentNNN- is added, there are changes to make to the following files: *
+   // *    meson.build                                                                                      *
+   // *    CMakeLists.txt                                                                                   *
+   // *******************************************************************************************************
    //
    // We store in the DB settings table what file number we've already reached.
    //
@@ -124,7 +128,8 @@ DefaultContentLoader::UpdateResult DefaultContentLoader::updateContentIfNecessar
             qCritical() <<
                Q_FUNC_INFO << "Search for" << globPattern << "in directory" << dir << "yielded" <<
                matchingFiles.size() << "results (expecting 1):" << matchingFiles.join(", ");
-            userMessage << QObject::tr("Error matching %1 file pattern in %2 directory").arg(globPattern, dir.absolutePath());
+            userMessage << QObject::tr("Error matching %1 file pattern in %2 directory").arg(globPattern,
+                                                                                             dir.absolutePath());
             return DefaultContentLoader::UpdateResult::Failed;
          }
          qDebug() << Q_FUNC_INFO << "Will read in" << matchingFiles.at(0);
@@ -133,14 +138,22 @@ DefaultContentLoader::UpdateResult DefaultContentLoader::updateContentIfNecessar
 
       if (inputFiles.size() > 0) {
          //
-         // We'd like to put any newly-imported default Recipes in the same folder as the other default ones.  To do this, we
-         // first make a note of which Recipes exist already, then, after the import, any new ones need to go in the default
-         // folder.
+         // We'd like to put any newly-imported default Recipes in the same folder as the other default ones.  To do
+         // this, we first make a note of which Recipes exist already, then, after the import, any new ones need to go
+         // in the default folder.
+         //
+         // Starting in mid-2026, for other things (ingredients, styles, equipments, etc), we'll put them in a folder
+         // called 'New ⭐ #x' where x is DefaultContentLoader::availableContentVersion.  (This means if you, eg,
+         // import content files 1, 2, 3 and 4 at the same time, then you'll get all the contents in folders called
+         // 'New ⭐ #4', rather than a separate folder for each content file.  I think this is OK, because the main
+         // point here is to allow the user to easily see what was just loaded in.  We would expect people to drag
+         // things to other folders in due course.)
          //
          QList<Recipe *> allRecipesBeforeImport = ObjectStoreWrapper::getAllRaw<Recipe>();
          qDebug() << Q_FUNC_INFO << allRecipesBeforeImport.size() << "Recipes before import";
 
-         succeeded = ImportExport::importFromFiles(inputFiles);
+         QString const importFolderPath = QString{"New ⭐ #%1"}.arg(DefaultContentLoader::availableContentVersion);
+         succeeded = ImportExport::importFromFiles(importFolderPath, inputFiles);
 
          if (succeeded) {
             //
@@ -162,9 +175,21 @@ DefaultContentLoader::UpdateResult DefaultContentLoader::updateContentIfNecessar
             qDebug() << Q_FUNC_INFO << newlyImportedRecipes.size() << "newly imported Recipes";
             // TODO: It would be neat, at some point, to to have a mechanism for setting a property on multiple objects
             //       of the same type, so that we could do it in a single DB update.
-            for (auto recipe : newlyImportedRecipes) {
-               Folder<Recipe> const * folder = Folder<Recipe>::createFromPath(FOLDER_PATH_FOR_SUPPLIED_RECIPES);
+            for (auto const recipe : newlyImportedRecipes) {
+               Folder<Recipe> const * folder = Folder<Recipe>::ensure(FOLDER_PATH_FOR_SUPPLIED_RECIPES);
                recipe->setContainedInFolderId(folder->key());
+            }
+
+            //
+            // Now that we moved all the newly-imported Recipes, we should delete the 'New ⭐ #x' Recipe folder if it
+            // is empty.  (Any 'New ⭐ #x' Hop folder, or Yeast folder etc can be assumed either non-empty or
+            // user-created.)
+            //
+            auto const recipeImportFolder = Folder<Recipe>::get(importFolderPath);
+            qDebug() << Q_FUNC_INFO << recipeImportFolder << "has" << recipeImportFolder->numChildren() << "children";
+            if (recipeImportFolder && recipeImportFolder->empty()) {
+               qDebug() << Q_FUNC_INFO << "Deleting empty folder:" << recipeImportFolder;
+               ObjectStoreWrapper::hardDelete(*recipeImportFolder);
             }
 
             //

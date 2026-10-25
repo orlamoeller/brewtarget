@@ -1,5 +1,5 @@
 //======================================================================================================================
-// schema/Fermentation.beer.schema is part of DotBeer and is copyright the following authors 2017-2026:
+// schema/Fermentation.beer.schema is part of dotBeer and is copyright the following authors 2017-2026:
 //   • Cameron Eldridge <cameron@mad.man>
 //   • John Jenkman <45741477+johnjenkman@users.noreply.github.com>
 //   • Mark Price <shadowchao99@gmail.com>
@@ -14,13 +14,20 @@
 //======================================================================================================================
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dotbeer.org/schema/Fermentation.beer.schema",
+  "$id": "https://dotbeer.org/schema/1.0.0/Fermentation.beer.schema",
   "type": "object",
   "description": "A fermentation procedure, which can be used by multiple recipes.",
-  "additionalProperties": false,
   "properties": {
     "name": {
       "type": "string"
+    },
+    "local_id" : {
+      "description": "The \"local ID\" that allows other objects in this file (eg recipes) to refer to this fermentation.",
+      "$ref": "DotBeer.beer.schema#/$defs/LocalId"
+    },
+    "folder_path": {
+      "description": "The suggested slash-delimited subfolder path in which to store this Fermentation object.",
+      "$ref": "DotBeer.beer.schema#/$defs/FolderPath"
     },
     "fermentation_description": {
       "type": "string"
@@ -29,6 +36,7 @@
       "type": "string"
     },
     "fermentation_steps": {
+      "description": "The steps that make up the fermentation, in the order they are performed.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -40,6 +48,7 @@
     "name",
     "fermentation_steps"
   ],
+  "unevaluatedProperties": false,
   "$defs": {
     "FermentationStep": {
       "type": "object",
@@ -54,19 +63,21 @@
         {
           "properties": {
             "free_rise": {
-              "description": "Free rise is used to indicate a fermentation step where the exothermic fermentation is allowed to raise the temperature without restriction This is either True or false.",
+              "description": "Free rise is used to indicate a fermentation step where the exothermic fermentation is allowed to raise the temperature without restriction.",
               "type": "boolean"
             },
+            // BeerJSON (from 3.0) also has `vessel_pressure`, for fermenting under pressure, which we don't (yet) have
             "vessel": {
+              "description": "Name of the vessel the step takes place in, which is how a transfer between vessels is recorded.",
               "type": "string"
             }
           }
         }
       ],
-      "unevaluatedProperties": false,
       "required": [
         "name"
-      ]
+      ],
+      "unevaluatedProperties": false
     }
   }
 }

@@ -28,13 +28,16 @@ namespace DotBeer {
    /*!
     * \brief Import ingredients, recipes, etc from a BeerJSON file
     *
+    * \param targetFolderPath
     * \param filename
     * \param userMessage Where to write any (brief!) message we want to be shown to the user after the import.
     *                    Typically, this is either the reason the import failed or a summary of what was imported.
     *
     * \return true if succeeded, false otherwise
     */
-   bool import(QString const & filename, QTextStream & userMessage);
+   bool import(QString const & targetFolderPath,
+               QString const & filename,
+               QTextStream & userMessage);
 
    /**
     * \brief Objects of this class are intended to be relatively short-lived, existing only for the time it takes to
@@ -53,7 +56,7 @@ namespace DotBeer {
       /**
       * \brief Add a list of \c NamedEntity objects to the serializer
       */
-      template<class NE> void add(QList<NE const *> const & nes);
+      template<class NE> void add(QString const & baseFolderPath, QList<NE const *> const & nes);
 
       /**
       * \brief Write the serialized data to the file.  Will be called in destructor if not already invoked directly.

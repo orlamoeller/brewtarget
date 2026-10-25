@@ -439,7 +439,7 @@ public:
     */
    void doExportSelected() const {
       QList<std::shared_ptr<NE>> selectedItems = this->getMultipleSelected();
-      this->m_contextMenus.exportItems(CastAndConvert::toConstRaw(selectedItems));
+      this->m_contextMenus.exportItems(QString{"/"}, CastAndConvert::toConstRaw(selectedItems));
       return;
    }
 
@@ -453,7 +453,8 @@ public:
     *              users, then we could have a rethink.
     */
    void doImportFromFiles() const {
-      ImportExport::importFromFiles();
+      // Catalogs don't show folders, so we don't need to handle importing into a folder here
+      ImportExport::importFromFiles("");
       return;
    }
 

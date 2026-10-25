@@ -27,7 +27,7 @@
 #include "model/NamedParameterBundle.h"
 #include "utils/AutoCompare.h"
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_MashStep.cpp"
 #endif
@@ -90,7 +90,7 @@ TypeLookup const MashStep::typeLookup {
       PROPERTY_TYPE_LOOKUP_ENTRY(MashStep, decoctionAmount_l     , m_amount_l              , Measurement::PhysicalQuantity::Volume        ), // Type Lookup retained for BeerXML
       PROPERTY_TYPE_LOOKUP_ENTRY(MashStep, infuseTemp_c          , m_infuseTemp_c          , Measurement::PhysicalQuantity::Temperature   , DisplayInfo::Precision{1}),
       // ⮜⮜⮜ All below added for BeerJSON support ⮞⮞⮞
-      PROPERTY_TYPE_LOOKUP_ENTRY(MashStep, liquorToGristRatio_lKg, m_liquorToGristRatio_lKg, Measurement::PhysicalQuantity::SpecificVolume),
+      PROPERTY_TYPE_LOOKUP_ENTRY(MashStep, liquorToGristRatio_lKg, m_liquorToGristRatio_lKg, Measurement::PhysicalQuantity::VolumePerMass),
    },
    // Parent class lookup.  NB: Step not NamedEntity!
    {&Step::typeLookup,

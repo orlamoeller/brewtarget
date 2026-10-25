@@ -55,7 +55,7 @@ AddPropertyName(ageTemp_c              )
 AddPropertyName(age_days               )
 AddPropertyName(ancestorId             )
 AddPropertyName(apparentAttenuation_pct)
-AddPropertyName(asstBrewer             )
+AddPropertyName(assistantBrewer        )
 AddPropertyName(batchSize_l            )
 AddPropertyName(beerAcidity_pH         )
 AddPropertyName(boil                   )
@@ -66,7 +66,7 @@ AddPropertyName(brewLogs               )
 AddPropertyName(brewer                 )
 AddPropertyName(calcsEnabled           )
 AddPropertyName(caloriesPer33cl        )
-AddPropertyName(caloriesPerLiter       )
+AddPropertyName(energyContent_kcalL    )
 AddPropertyName(caloriesPerUs12oz      )
 AddPropertyName(caloriesPerUsPint      )
 AddPropertyName(carbonationTemp_c      )
@@ -147,7 +147,8 @@ class Recipe : public NamedEntity,
    FOLDER_BASE_DECL(Recipe)
 
    // See model/FolderPropertyBase.h for info, getters and setters for these properties
-   Q_PROPERTY(int containedInFolderId   READ containedInFolderId   WRITE setContainedInFolderId)
+   Q_PROPERTY(int     containedInFolderId     READ containedInFolderId     WRITE setContainedInFolderId  )
+   Q_PROPERTY(QString containedInFolderPath   READ containedInFolderPath   WRITE setContainedInFolderPath)
 
    /**
     * \brief \c MainWindow is a friend so it can access \c Recipe::recalcAll() and \c Recipe::recalcIfNeeded()
@@ -171,7 +172,7 @@ public:
    static QString localisedName_age_days               ();
    static QString localisedName_ancestorId             ();
    static QString localisedName_apparentAttenuation_pct();
-   static QString localisedName_asstBrewer             ();
+   static QString localisedName_assistantBrewer             ();
    static QString localisedName_batchSize_l            ();
    static QString localisedName_beerAcidity_pH         ();
    static QString localisedName_boil                   ();
@@ -182,7 +183,7 @@ public:
    static QString localisedName_brewer                 ();
    static QString localisedName_calcsEnabled           ();
    static QString localisedName_caloriesPer33cl        ();
-   static QString localisedName_caloriesPerLiter       ();
+   static QString localisedName_energyContent_kcalL    ();
    static QString localisedName_caloriesPerUs12oz      ();
    static QString localisedName_caloriesPerUsPint      ();
    static QString localisedName_carbonationTemp_c      ();
@@ -299,7 +300,7 @@ public:
    //! \brief The brewer.  This becomes "author" in BeerJSON
    Q_PROPERTY(QString brewer             READ brewer             WRITE setBrewer           )
    /**
-    * \brief The batch size is the target size of the finished batch (in liters) aka the volume into the fermenter.
+    * \brief The batch size is the target size of the finished batch (in liters) aka the volume into the fermentor.
     */
    Q_PROPERTY(double  batchSize_l        READ batchSize_l        WRITE setBatchSize_l      )
    /**
@@ -309,15 +310,37 @@ public:
     */
    Q_PROPERTY(double  efficiency_pct     READ efficiency_pct     WRITE setEfficiency_pct   )
    //! \brief The assistant brewer.  This becomes "coauthor" in BeerJSON
-   Q_PROPERTY(QString asstBrewer         READ asstBrewer         WRITE setAsstBrewer       )
+   Q_PROPERTY(QString assistantBrewer         READ assistantBrewer         WRITE setAssistantBrewer       )
    //! \brief The notes.
    Q_PROPERTY(QString notes              READ notes              WRITE setNotes            )
    //! \brief The tasting notes.
    Q_PROPERTY(QString tasteNotes         READ tasteNotes         WRITE setTasteNotes       )
    /**
     * \brief Decimal number between zero and 50.0 denoting the taste rating – corresponds to the 50 point BJCP rating
-    *         system.
-    *         .:TBD:. This is stored as a double but the UI constrains it to an unsigned int.
+    *        system.
+    *
+    *        The BJCP Beer Scoresheet divides the evaluation into five major areas, each scored on whole points:
+    *           - Aroma: 12 points
+    *           - Appearance: 3 points
+    *           - Flavor: 20 points
+    *           - Mouthfeel: 5 points
+    *           - Overall Impression: 10 points
+    *        That adds up to a maximum possible score of 50 points.
+    *
+    *        The scoresheet breaks the results into these general ranges:
+    *           - Outstanding: 45 to 50 – World-class example of style
+    *           - Excellent: 38 to 44 – Exemplifies style well and requires only minor fine-tuning
+    *           - Very Good: 30 to 37 – Generally within style parameters with some minor flaws
+    *           - Good: 21 to 29 – Misses the mark on style and/or has minor flaws
+    *           - Fair: 14 to 20 – Off flavors, aromas or major style deficiencies
+    *           - Problematic: 0 to 13 – Major off flavors and aromas dominate
+    *
+    *        NB: The type here is deliberately `double` not `int`.  Although an individual BJCP judge’s score is a whole
+    *        number, the score a brewer actually gets back is not necessarily an integer as some competitions report the
+    *        average of two or three judges’ scores.  Equally, a brewer who tastes a batch several times might also want
+    *        to record an average.
+    *
+    *         .:TODO:. We need to fix the UI, which constrains this to an unsigned int and doesn't cap it.
     */
    Q_PROPERTY(double  tasteRating        READ tasteRating        WRITE setTasteRating      )
    /**
@@ -387,15 +410,17 @@ public:
    // Same goes for ABV_pct, IBU, color_srm below (which are optional BeerJSON fields but not part of BeerXML)
    //
    /**
-    * \brief The calculated OG
+    * \brief The calculated OG, in other words the expected OG
     *
-    *        In BeerXML, this is "The measured original (pre-fermentation) specific gravity of the beer."
+    *        In BeerXML, this is "The measured original (pre-fermentation) specific gravity of the beer", but we put
+    *        measured values in BrewLog, as they may differ between brews.
     */
    Q_PROPERTY(double  og                 READ og                 WRITE setOg)
    /**
-    * \brief The calculated FG
+    * \brief The calculated FG, in other words the expected FG
     *
-    *        In BeerXML, this is "The measured final gravity of the finished beer."
+    *        In BeerXML, this is "The measured final gravity of the finished beer", but, as with OG, we put measured
+    *        values in BrewLog.
     */
    Q_PROPERTY(double  fg                 READ fg                 WRITE setFg)
 
@@ -425,13 +450,13 @@ public:
    Q_PROPERTY(double  postBoilVolume_l    READ postBoilVolume_l    STORED false)
    //! \brief The calculated final volume into the primary in liters.
    Q_PROPERTY(double  finalVolume_l       READ finalVolume_l       STORED false)
-   //! \brief The calculated Calories per liter. (kcal).
-   Q_PROPERTY(double  caloriesPerLiter    READ caloriesPerLiter    STORED false)
-   //! \brief The calculated Calories per 33cl. (kcal).
+   //! \brief The calculated energy content, in kiloalories per liter. (kcal/L).
+   Q_PROPERTY(double  energyContent_kcalL READ energyContent_kcalL STORED false)
+   //! \brief The calculated Calories per 33cl. (kcal). TODO: Remove this and use Measurement::Units::kilocaloriesPer33cl to convert from energyContent_kcalL
    Q_PROPERTY(double  caloriesPer33cl     READ caloriesPer33cl     STORED false)
-   //! \brief The calculated Calories per (US) 12 oz. (kcal).
+   //! \brief The calculated Calories per (US) 12 oz. (kcal). TODO: Remove this and use Measurement::Units::kilocaloriesPer12us_floz to convert from energyContent_kcalL
    Q_PROPERTY(double  caloriesPerUs12oz   READ caloriesPerUs12oz   STORED false)
-   //! \brief The calculated Calories per US pint (16 US fl oz). (kcal).
+   //! \brief The calculated Calories per US pint (16 US fl oz). (kcal). TODO: Remove this and use Measurement::Units::kilocaloriesPer16us_floz to convert from energyContent_kcalL
    Q_PROPERTY(double  caloriesPerUsPint   READ caloriesPerUsPint   STORED false)
    //! \brief The amount of grains in the mash in kg.
    Q_PROPERTY(double  grainsInMash_kg     READ grainsInMash_kg     STORED false)
@@ -466,7 +491,7 @@ public:
     *        (\c waterTarget) and/or the brewer's local water profile (\c waterBase).  If both of these are set, then,
     *        ideally, the Recipe should include the water agents etc required to modify base to target.  In particular:
     *           - Misc ingredients of type Misc::Type::WaterAgent can add salt ions or acidity to the base profile water
-    *           - Aciduated malts (originally developed for German brewers working under Reinheitsgebot) can replace
+    *           - Acidulated malts (originally developed for German brewers working under Reinheitsgebot) can replace
     *             acid additions
     *           - Using some proportion of Reverse Osmosis (RO) water can dilute a base-profile water that has a higher
     *             mineral content than the target.
@@ -603,7 +628,7 @@ public:
    QString brewer            () const;
    double  batchSize_l       () const;
    double  efficiency_pct    () const;
-   QString asstBrewer        () const;
+   QString assistantBrewer        () const;
    QString notes             () const;
    QString tasteNotes        () const;
    double  tasteRating       () const;
@@ -658,7 +683,7 @@ public:
    double        postBoilVolume_l        () const;
    double        finalVolume_l           () const;
    double        caloriesPer33cl         () const;
-   double        caloriesPerLiter        () const;
+   double        energyContent_kcalL     () const;
    double        caloriesPerUs12oz       () const;
    double        caloriesPerUsPint       () const;
    double        grainsInMash_kg         () const;
@@ -768,13 +793,23 @@ public:
    // Helpers
    //! \brief Get the IBUs from a given \c hop addition.
    double ibuFromHopAddition(RecipeAdditionHop const & hopAddition) const;
-   // .:TBD:. Not sure reagents is the best word here...
-   //! \brief Formats the fermentable additions for instructions
-   QList<QString> getReagents(QList<std::shared_ptr<RecipeAdditionFermentable>> fermentableAdditions);
-   //! \brief Formats the hops for instructions
-   QList<QString> getReagents(QList<std::shared_ptr<RecipeAdditionHop>> hopAdditions, bool firstWort);
-   //! \brief Formats the mashsteps for instructions
-   QList<QString> getReagents(QList< std::shared_ptr<MashStep> >);
+
+   /**
+    * \brief Get names and amounts of fermentables added to the mash
+    */
+   QList<QString> getFermentableAdditionNameAndAmounts() const;
+
+   /**
+    * \brief Get names and amounts of hop additions
+    *
+    * \param firstWort
+    */
+   QList<QString> getHopAdditionNameAndAmounts(bool firstWort) const;
+
+   /**
+    * \brief Formats the mashsteps for instructions
+    */
+   QList<QString> getMashHeatingSteps() const;
 
    /**
     * This structure holds some intermediate values that are used for calculating brewhouse efficiency etc.
@@ -784,17 +819,18 @@ public:
       /**
        * Mass of sugars present before the mash (and is therefore *not* affected by mash efficiency).
        *
-       * At the moment, this is Fermentable additions of type:
+       * This is Fermentable additions for which \c Fermentable::isExistingSugar() is true, ie of type:
        *    Fermentable::Type::Sugar
        *    Fermentable::Type::Extract
        *    Fermentable::Type::Dry_Extract
-       *
-       * However TODO we need to extend sugarTotals and related functions to handle Fruit, Juice and Honey
+       *    Fermentable::Type::Fruit
+       *    Fermentable::Type::Juice
+       *    Fermentable::Type::Honey
        */
       double existingSugars_all_kg = 0.0;
       /**
-       * The part of \c existingSugars_all_kg that is not Fermentable::Type::Sugar
-       * and not called "Milk Sugar (Lactose)" -- TODO we need to fix that latter part for non-English locales
+       * The part of \c existingSugars_all_kg that yeast cannot ferment (eg lactose), per
+       * \c Fermentable::fermentableFraction_pct
        */
       double existingSugars_nonFermentable_kg = 0.0;
       /**
@@ -802,13 +838,19 @@ public:
        */
       double existingSugars_lateAddition_kg = 0.0;
       /**
-       * Total sugars from Fermentable additions that are not sugars or extracts
+       * Total sugars from Fermentable additions whose extract has to come from starch converted in the mash (ie for
+       * which \c Fermentable::isExistingSugar() is false: grains and "other" adjuncts)
        */
       double sugarsFromStarch_all_kg = 0.0;
       /**
        * The part of \c sugarsFromStarch_all_kg that is added after the boil
        */
       double sugarsFromStarch_lateAddition_kg = 0.0;
+      /**
+       * The part of \c sugarsFromStarch_all_kg that yeast cannot ferment, per \c Fermentable::fermentableFraction_pct.
+       * NB: Like \c sugarsFromStarch_all_kg, this is \b before applying mash efficiency.
+       */
+      double sugarsFromStarch_nonFermentable_kg = 0.0;
    };
 
    Sugars sugarTotals() const;
@@ -818,7 +860,7 @@ public:
    void setBrewer            (QString const & val);
    void setBatchSize_l       (double  const   val);
    void setEfficiency_pct    (double  const   val);
-   void setAsstBrewer        (QString const & val);
+   void setAssistantBrewer        (QString const & val);
    void setNotes             (QString const & val);
    void setTasteNotes        (QString const & val);
    void setTasteRating       (double  const   val);
@@ -885,7 +927,7 @@ private:
    // Cached properties that are written directly to db
    Type                  m_type                   = Type::AllGrain;
    QString               m_brewer                 = "";
-   QString               m_asstBrewer             = QString{"%1: free beer software"}.arg(CONFIG_APPLICATION_NAME_UC);
+   QString               m_assistantBrewer             = QString{"%1: free beer software"}.arg(CONFIG_APPLICATION_NAME_UC);
    double                m_batchSize_l            = 0.0;
    double                m_efficiency_pct         = 0.0;
    std::optional<double> m_age_days               = std::nullopt;

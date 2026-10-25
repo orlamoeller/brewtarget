@@ -24,12 +24,13 @@
 
 #include "database/ObjectStoreWrapper.h"
 #include "measurement/PhysicalConstants.h"
+#include "model/Folder.h"
 #include "model/StockPurchaseYeast.h"
 #include "model/NamedParameterBundle.h"
 #include "model/Recipe.h"
 #include "utils/AutoCompare.h"
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_Yeast.cpp"
 #endif
@@ -199,7 +200,8 @@ TypeLookup const Yeast::typeLookup {
    },
    // Parent classes lookup
    {&Ingredient::typeLookup,
-    &IngredientBase<Yeast>::typeLookup}
+    &IngredientBase<Yeast>::typeLookup,
+    &FolderPropertyBase<Yeast>::typeLookup}
 };
 static_assert(std::is_base_of<Ingredient, Yeast>::value);
 

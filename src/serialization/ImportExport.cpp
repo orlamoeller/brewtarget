@@ -90,7 +90,6 @@ namespace {
             QObject::tr("DotBeer format (*.beer);;BeerJSON format (*.json);;BeerXML format (*.xml)")
       };
       fileChooser.setViewMode(QFileDialog::List);
-      // ¥¥
       fileChooser.setOption(QFileDialog::DontUseNativeDialog, false);
       if (importing) {
          fileChooser.setAcceptMode(QFileDialog::AcceptOpen);
@@ -240,15 +239,15 @@ namespace {
     * \brief Make a set of Hop/Fermentable/etc from a list of same and a list of Recipes
     *        Used in ImportExport::exportToFile when exporting to BeerJSON.  See comment in that function for why.
     */
-   template<class NE> QSet<NE const *> makeSet(QList<NE     const *> const * ingredients,
-                                               QList<Recipe const *> const * recipes) {
+   template<class NE> QSet<NE const *>
+   makeSet(QList<NE     const *> const * ingredients,
+           QList<Recipe const *> const * recipes    ) requires(std::is_base_of_v<Ingredient, NE>) {
       QSet<NE const *> ingredientSet{makeSet(ingredients)};
       if (recipes) {
          for (Recipe const * recipe : *recipes) {
-            auto ingredientAdditions = recipe->allOwned<typename NE::RecipeAdditionClass>();
-            for (auto ingredientAddition : ingredientAdditions) {
-               auto ingredient = ingredientAddition->ingredient();
-               if (ingredient) {
+            for (auto ingredientAdditions = recipe->allOwned<typename NE::RecipeAdditionClass>();
+                 auto ingredientAddition : ingredientAdditions) {
+               if (auto ingredient = ingredientAddition->ingredient()) {
                   ingredientSet.insert(ingredient.get());
                }
             }
@@ -258,10 +257,33 @@ namespace {
    }
 
    /**
-    * \brief Specialisation needed for Water as it's a bit different from other ingredients
+    * \brief Specialisation for things that Recipe uses (but does not own) that are not ingredients
+    *
+    * @tparam NE
+    * @param nonIngredients Maybe one day we'll think of a better collective noun for
+    *                       Mash/Boil/Fermentation/Style/Equipment!
+    * @param recipes
+    * @return
     */
-   template<> QSet<Water const *> makeSet(QList<Water const *> const * ingredients,
-                                          QList<Recipe const *> const * recipes) {
+   template<class NE> QSet<NE const *>
+   makeSet(QList<NE     const *> const * nonIngredients,
+           QList<Recipe const *> const * recipes       ) requires(!std::is_base_of_v<Ingredient, NE>) {
+      QSet<NE const *> nonIngredientSet{makeSet(nonIngredients)};
+      if (recipes) {
+         for (Recipe const * recipe : *recipes) {
+            if (auto const nonIngredient = recipe->get<NE>()) {
+               nonIngredientSet.insert(nonIngredient.get());
+            }
+         }
+      }
+      return nonIngredientSet;
+   }
+
+   /**
+    * \brief Specialisation (well, in fact an overload) needed for Water as it's a bit different from other ingredients
+    */
+   QSet<Water const *> makeSet(QList<Water const *> const * ingredients,
+                               QList<Recipe const *> const * recipes) {
       QSet<Water const *> ingredientSet{makeSet(ingredients)};
       if (recipes) {
          for (Recipe const * recipe : *recipes) {
@@ -279,7 +301,7 @@ namespace {
    }
 }
 
-bool ImportExport::importFromFiles(std::optional<QStringList> inputFiles) {
+bool ImportExport::importFromFiles(QString const & targetFolderPath, std::optional<QStringList> inputFiles) {
    if (!inputFiles) {
       inputFiles = selectFiles(ImportOrExport::IMPORT);
    }
@@ -288,7 +310,7 @@ bool ImportExport::importFromFiles(std::optional<QStringList> inputFiles) {
    }
 
    bool allSucceeded = true;
-   for (QString filename : *inputFiles) {
+   for (QString const & filename : *inputFiles) {
       //
       // I guess if the user were importing a lot of files in one go, it might be annoying to have a separate result
       // message for each one, but TBD whether that's much of a use case.  For now, we keep things simple.
@@ -298,11 +320,11 @@ bool ImportExport::importFromFiles(std::optional<QStringList> inputFiles) {
       QTextStream userMessageAsStream{&userMessage};
       bool succeeded = false;
       if (filename.endsWith("beer", Qt::CaseInsensitive)) {
-         succeeded = DotBeer::import(filename, userMessageAsStream);
+         succeeded = DotBeer::import(targetFolderPath, filename, userMessageAsStream);
       } else if (filename.endsWith("json", Qt::CaseInsensitive)) {
-         succeeded = BeerJson::import(filename, userMessageAsStream);
+         succeeded = BeerJson::import(targetFolderPath, filename, userMessageAsStream);
       } else if (filename.endsWith("xml", Qt::CaseInsensitive)) {
-         succeeded = BeerXML::getInstance().importFromXML(filename, userMessageAsStream);
+         succeeded = BeerXML::getInstance().importFromXML(targetFolderPath, filename, userMessageAsStream);
       } else {
          qInfo() << Q_FUNC_INFO << "Don't understand file extension on" << filename << "so ignoring!";
          userMessageAsStream <<
@@ -319,7 +341,7 @@ bool ImportExport::importFromFiles(std::optional<QStringList> inputFiles) {
    return allSucceeded;
 }
 
-bool ImportExport::exportToFile(ImportExport::Lists const & exportLists) {
+bool ImportExport::exportToFile(QString const & baseFolderPath, ImportExport::Lists const & exportLists) {
    // It's the caller's responsibility to ensure that at least one list is supplied and that at least one of the
    // supplied lists is non-empty
    Q_ASSERT((exportLists.recipes       && exportLists.recipes      ->size() > 0) ||
@@ -355,29 +377,35 @@ bool ImportExport::exportToFile(ImportExport::Lists const & exportLists) {
 
    } else if (filename.endsWith(".beer", Qt::CaseInsensitive)) {
       //
+      // In dotBeer, things are cross-referenced by "local IDs" so we need to make sure that everything referenced eg by
+      // any recipe we are exporting is itself explicitly exported.
+      //
       // TODO: This needs some more work.  For one thing, I would like to have a canonical order for exporting things,
       //       as it makes it easier to compare two sets of output (eg by different versions of the code).
       //
-      QSet<Fermentable const *> const setOfFermentable = makeSet(exportLists.fermentables, exportLists.recipes);
-      QSet<Hop         const *> const setOfHop         = makeSet(exportLists.hops        , exportLists.recipes);
-      QSet<Misc        const *> const setOfMisc        = makeSet(exportLists.miscs       , exportLists.recipes);
-      QSet<Yeast       const *> const setOfYeast       = makeSet(exportLists.yeasts      , exportLists.recipes);
-      QSet<Water       const *> const setOfWater       = makeSet(exportLists.waters      , exportLists.recipes);
-      QSet<Style       const *> const setOfStyle       = makeSet(exportLists.styles);
-      QSet<Equipment   const *> const setOfEquipment   = makeSet(exportLists.equipments);
+      QSet<Fermentable  const *> const setOfFermentable   = makeSet(exportLists.fermentables , exportLists.recipes);
+      QSet<Hop          const *> const setOfHop           = makeSet(exportLists.hops         , exportLists.recipes);
+      QSet<Misc         const *> const setOfMisc          = makeSet(exportLists.miscs        , exportLists.recipes);
+      QSet<Yeast        const *> const setOfYeast         = makeSet(exportLists.yeasts       , exportLists.recipes);
+      QSet<Water        const *> const setOfWater         = makeSet(exportLists.waters       , exportLists.recipes);
+      QSet<Style        const *> const setOfStyle         = makeSet(exportLists.styles       , exportLists.recipes);
+      QSet<Equipment    const *> const setOfEquipment     = makeSet(exportLists.equipments   , exportLists.recipes);
+      QSet<Mash         const *> const setOfMashes        = makeSet(exportLists.mashes       , exportLists.recipes);
+      QSet<Boil         const *> const setOfBoils         = makeSet(exportLists.boils        , exportLists.recipes);
+      QSet<Fermentation const *> const setOfFermentations = makeSet(exportLists.fermentations, exportLists.recipes);
 
       DotBeer::Exporter exporter(outFile, userMessageAsStream);
-      if (!setOfFermentable.isEmpty()   ) { exporter.add(setOfFermentable.values()); }
-      if (!setOfHop        .isEmpty()   ) { exporter.add(setOfHop        .values()); }
-      if (!setOfMisc       .isEmpty()   ) { exporter.add(setOfMisc       .values()); }
-      if (!setOfYeast      .isEmpty()   ) { exporter.add(setOfYeast      .values()); }
-      if (!setOfStyle      .isEmpty()   ) { exporter.add(setOfStyle      .values()); }
-      if (!setOfEquipment  .isEmpty()   ) { exporter.add(setOfEquipment  .values()); }
-      if (!setOfWater      .isEmpty()   ) { exporter.add(setOfWater      .values()); }
-      if (exportLists.mashes        && exportLists.mashes       ->size() > 0) { exporter.add(*exportLists.mashes       ); }
-      if (exportLists.boils         && exportLists.boils        ->size() > 0) { exporter.add(*exportLists.boils        ); }
-      if (exportLists.fermentations && exportLists.fermentations->size() > 0) { exporter.add(*exportLists.fermentations); }
-      if (exportLists.recipes       && exportLists.recipes      ->size() > 0) { exporter.add(*exportLists.recipes      ); }
+      if (!setOfFermentable  .isEmpty()) { exporter.add(baseFolderPath, setOfFermentable  .values()); }
+      if (!setOfHop          .isEmpty()) { exporter.add(baseFolderPath, setOfHop          .values()); }
+      if (!setOfMisc         .isEmpty()) { exporter.add(baseFolderPath, setOfMisc         .values()); }
+      if (!setOfYeast        .isEmpty()) { exporter.add(baseFolderPath, setOfYeast        .values()); }
+      if (!setOfStyle        .isEmpty()) { exporter.add(baseFolderPath, setOfStyle        .values()); }
+      if (!setOfEquipment    .isEmpty()) { exporter.add(baseFolderPath, setOfEquipment    .values()); }
+      if (!setOfWater        .isEmpty()) { exporter.add(baseFolderPath, setOfWater        .values()); }
+      if (!setOfMashes       .isEmpty()) { exporter.add(baseFolderPath, setOfMashes       .values()); }
+      if (!setOfBoils        .isEmpty()) { exporter.add(baseFolderPath, setOfBoils        .values()); }
+      if (!setOfFermentations.isEmpty()) { exporter.add(baseFolderPath, setOfFermentations.values()); }
+      if (exportLists.recipes && exportLists.recipes->size() > 0) { exporter.add(baseFolderPath, *exportLists.recipes); }
 
       exporter.close();
       succeeded = true;
@@ -472,14 +500,36 @@ bool ImportExport::exportToFile(ImportExport::Lists const & exportLists) {
 //
 // This is a bit clunky, but it works!
 //
-template<> bool ImportExport::exportToFile(QList<Recipe       const *> const & items) { Lists const exportLists{.recipes       = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Equipment    const *> const & items) { Lists const exportLists{.equipments    = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Fermentable  const *> const & items) { Lists const exportLists{.fermentables  = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Hop          const *> const & items) { Lists const exportLists{.hops          = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Misc         const *> const & items) { Lists const exportLists{.miscs         = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Style        const *> const & items) { Lists const exportLists{.styles        = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Water        const *> const & items) { Lists const exportLists{.waters        = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Yeast        const *> const & items) { Lists const exportLists{.yeasts        = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Mash         const *> const & items) { Lists const exportLists{.mashes        = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Boil         const *> const & items) { Lists const exportLists{.boils         = &items}; return exportToFile(exportLists); }
-template<> bool ImportExport::exportToFile(QList<Fermentation const *> const & items) { Lists const exportLists{.fermentations = &items}; return exportToFile(exportLists); }
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Recipe       const *> const & items) {
+   Lists const exportLists{.recipes       = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Equipment    const *> const & items) {
+   Lists const exportLists{.equipments    = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Fermentable  const *> const & items) {
+   Lists const exportLists{.fermentables  = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Hop          const *> const & items) {
+   Lists const exportLists{.hops          = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Misc         const *> const & items) {
+   Lists const exportLists{.miscs         = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Style        const *> const & items) {
+   Lists const exportLists{.styles        = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Water        const *> const & items) {
+   Lists const exportLists{.waters        = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Yeast        const *> const & items) {
+   Lists const exportLists{.yeasts        = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Mash         const *> const & items) {
+   Lists const exportLists{.mashes        = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Boil         const *> const & items) {
+   Lists const exportLists{.boils         = &items}; return exportToFile(baseFolderPath, exportLists);
+}
+template<> bool ImportExport::exportToFile(QString const & baseFolderPath, QList<Fermentation const *> const & items) {
+   Lists const exportLists{.fermentations = &items}; return exportToFile(baseFolderPath, exportLists);
+}

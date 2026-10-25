@@ -76,7 +76,8 @@ class Boil : public NamedEntity,
    FOLDER_BASE_DECL(Boil)
    STEP_OWNER_COMMON_DECL(Boil, boil)
    // See model/FolderPropertyBase.h for info, getters and setters for these properties
-   Q_PROPERTY(int containedInFolderId   READ containedInFolderId   WRITE setContainedInFolderId)
+   Q_PROPERTY(int     containedInFolderId     READ containedInFolderId     WRITE setContainedInFolderId  )
+   Q_PROPERTY(QString containedInFolderPath   READ containedInFolderPath   WRITE setContainedInFolderPath)
    // See model/StepOwnerBase.h for info, getters and setters for these properties
    Q_PROPERTY(QList<std::shared_ptr<BoilStep>> steps   READ steps   WRITE setSteps   STORED false)
    Q_PROPERTY(unsigned int numSteps   READ numSteps   STORED false)
@@ -162,8 +163,6 @@ public:
     *        as the length of the "boil proper" so, in our new model, it is the length of the step(s) for which
     *        \c Step::startTemp_c and \c Step::endTemp_c are above \c minimumBoilTemperature_c.  In other words, it is
     *        a convenience way of accessing the length of the boil excluding any ramp-up or cool-down steps.
-    *
-    *        TBD: It's possible we should make this optional if we desire to support "no boil" recipes in future.
     */
    Q_PROPERTY(double                boilTime_mins          READ boilTime_mins   WRITE setBoilTime_mins STORED false)
 

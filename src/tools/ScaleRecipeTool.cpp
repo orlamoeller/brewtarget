@@ -40,7 +40,7 @@
 #include "model/Yeast.h"
 #include "PersistentSettings.h"
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_ScaleRecipeTool.cpp"
 #endif
@@ -81,7 +81,7 @@ void ScaleRecipeTool::scale(Equipment* equip, double const newEff) {
 
    // Calculate volume ratio
    double const currentBatchSize_l = m_recObs->batchSize_l();
-   double const newBatchSize_l = equipment->fermenterBatchSize_l();
+   double const newBatchSize_l = equipment->fvBatchSize_l();
    double const volRatio = newBatchSize_l / currentBatchSize_l;
 
    // Calculate efficiency ratio
@@ -96,8 +96,9 @@ void ScaleRecipeTool::scale(Equipment* equip, double const newEff) {
    // We assume boil time remains unchanged
 
    for (auto const & fermentableAddition : this->m_recObs->fermentableAdditions()) {
-      // We assume volumes and masses get scaled the same way
-      if (!fermentableAddition->fermentable()->isSugar() && !fermentableAddition->fermentable()->isExtract()) {
+      // We assume volumes and masses get scaled the same way.  Only ingredients whose extract is subject to mash
+      // efficiency (see Recipe::sugarTotals) need adjusting for a change of efficiency.
+      if (!fermentableAddition->fermentable()->isExistingSugar()) {
          fermentableAddition->setQuantity(fermentableAddition->quantity() * effRatio * volRatio);
       } else {
          fermentableAddition->setQuantity(fermentableAddition->quantity() * volRatio);

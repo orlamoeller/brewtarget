@@ -15,7 +15,7 @@
  =====================================================================================================================*/
 #include "model/StockPurchaseFermentable.h"
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_StockPurchaseFermentable.cpp"
 #endif
@@ -104,11 +104,12 @@ void StockPurchaseFermentable::setColor_lovibond(std::optional<double> const   v
                   this->enforceMin(val, "color"));
    return;
 }
-void StockPurchaseFermentable::setColor_srm     (std::optional<double> const   val) {
+void StockPurchaseFermentable::setColor_srm(std::optional<double> const   val) {
    if (!val) {
       this->setColor_lovibond(std::nullopt);
+   } else {
+      this->setColor_lovibond(Measurement::Units::lovibond.fromCanonical(*val));
    }
-   this->setColor_lovibond(Measurement::Units::lovibond.fromCanonical(*val));
    return;
 }
 

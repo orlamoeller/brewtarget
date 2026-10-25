@@ -64,18 +64,15 @@ def installDependencies():
    btLogger.log.info('Checking which dependencies need to be installed')
    #
    # I looked at using ConanCenter (https://conan.io/center/) as a source of libraries, so that we could automate
-   # installing dependencies, but it does not have all the ones we need.  Eg it has Boost, Qt, Xerces-C and Valijson,
-   # but not Xalan-C.  (Someone else has already requested Xalan-C, see
-   # https://github.com/conan-io/conan-center-index/issues/5546, but that request has been open a long time, so its
-   # fulfilment doesn't seem imminent.)  It also doesn't yet integrate quite as well with meson as we might like (eg
-   # as at 2023-01-15, https://docs.conan.io/en/latest/reference/conanfile/tools/meson.html is listed as "experimental
-   # and subject to breaking changes".
+   # installing dependencies, but it does not have all the ones we need.  However, things might improve in the future.
+   # (In 2023, Conan's Meson integration was listed as "experimental and subject to breaking changes"; in 2026, it's now
+   # free of such warnings.)
    #
-   # Another option is vcpkg (https://vcpkg.io/en/index.html), which does have both Xerces-C and Xalan-C, along with
-   # Boost, Qt and Valijson.  There is an example here https://github.com/Neumann-A/meson-vcpkg of how to use vcpkg from
-   # Meson.  However, it's pretty slow to get started with because it builds from source everything it installs
-   # (including tools it depends on such as CMake) -- even if they are already installed on your system from another
-   # source.  This is laudably correct but I'm too impatient to do things that way.
+   # Another option is vcpkg (https://vcpkg.io/en/index.html), which does have more libraries.  There is an example here
+   # https://github.com/Neumann-A/meson-vcpkg of how to use vcpkg from Meson.  However, it's pretty slow to get started
+   # with because it builds from source everything it installs (including tools it depends on such as CMake) -- even if
+   # they are already installed on your system from another source.  This is laudably correct, but I'm too impatient to
+   # do things that way.
    #
    # Will probably take another look at Conan in future, subject to working out how to have it use already-installed
    # versions of libraries/frameworks if they are present.  The recommended way to install Conan is via a Python
@@ -104,7 +101,7 @@ def installDependencies():
                    '.' + str(distroInfo["minor"]) + ')')
 
          #
-         # For almost everything apart form Boost (see below) we can rely on the distro packages.  A few notes:
+         # For almost everything apart from Boost (see below), we can rely on the distro packages.  A few notes:
          #  - We need CMake even for the Meson build because meson uses CMake as one of its library-finding tools
          #  - The pandoc package helps us create man pages from markdown input
          #  - The build-essential and debhelper packages are for creating Debian packages
@@ -481,12 +478,21 @@ def installDependencies():
          btLogger.log.debug('Windows')
          #
          # First thing is to detect whether we're in the MSYS2 environment, and, if so, whether we're in the right
-         # version of it.
+         # "version" of it:
+         #
+         #    - We used to build only 32-bit packages (i686 architecture) because of problems getting 64-bit versions of
+         #      NSIS plugins to work.  However, we now invoke NSIS without plugins, so the 64-bit builds are fine, which
+         #      is good, as the 32-bit MSYS2 packages/groups were being phased out circa January 2024.
+         #
+         #    - As of August 2026, the MINGW64 environment (which targets the old Windows MSVCRT = Microsoft Visual C++
+         #      Runtime Library) is deprecated and UCRT64 (which targets the newer Windows UCRT = Universal C Runtime)
+         #      replaces it.
          #
          # We take the existence of an executable `uname` in the path as a pretty good indicator that we're in MSYS2
-         # or similar environment).  Then the result of running that should tell us if we're in the 32-bit version of
-         # MSYS2.  (See comment below on why we don't yet support the 64-bit version, though I'm sure we'll fix this one
-         # day.)
+         # or similar environment).
+         #
+         # In the past, we took the output of `uname -a` as a means of determining which version of MSYS2 we're in, but
+         # the MSYSTEM environment variable is a more reliable source of this information.
          #
          exe_uname = shutil.which('uname')
          if (exe_uname is None or exe_uname == ''):
@@ -496,21 +502,12 @@ def installDependencies():
          unameResult = str(
             btExecute.abortOnRunFail(subprocess.run([exe_uname, '-a'], encoding = "utf-8", capture_output = True)).stdout
          ).rstrip()
-         btLogger.log.debug('Running uname -a gives ' + unameResult)
-         # Output from `uname -a` will be of the form
-         #    MINGW64_NT-10.0-19044 Matt-Virt-Win 3.4.3.x86_64 2023-01-11 20:20 UTC x86_64 Msys
-         # We just need the bit before the first underscore, eg
-         #    MINGW64
-         terminalVersion = unameResult.split(sep='_', maxsplit=1)[0]
+         msystem = os.getenv("MSYSTEM");
+         mingwPrefix = os.getenv("MINGW_PREFIX");
+         btLogger.log.debug('Running uname -a gives ' + unameResult + '; MSYSTEM = ' + msystem + '; MINGW_PREFIX = ' + mingwPrefix)
 
-         if (terminalVersion != 'MINGW64'):
-            # In the past, we built only 32-bit packages (i686 architecture) on Windows because of problems getting
-            # 64-bit versions of NSIS plugins to work.  However, we now invoke NSIS without plugins, so the 64-bit build
-            # seems to be working.
-            #
-            # As of January 2024, some of the 32-bit MSYS2 packages/groups we were previously relying on previously are
-            # no longer available.  So now, we only build 64-bit packages (x86_64 architecture) on Windows.
-            btLogger.log.critical('Running in ' + terminalVersion + ' but need to run in MINGW64 (ie 64-bit build environment)')
+         if (msystem != 'UCRT64'):
+            btLogger.log.critical('Running in ' + msystem + ' (' + terminalVersion + ') but need to run in UCRT64')
             sys.exit(1)
 
          # Ensure pip is up-to-date.  This is what the error message tells you to run if it's not!
@@ -523,14 +520,11 @@ def installDependencies():
          # bunch of Python packaging files unless we force Pacman to overwrite them.  This is somewhat less of a hack
          # than specifying --overwrite globally.
          #
-         # We have to do both 32-bit and 64-bit versions of Python here to be certain.
-         #
          # Note that the rules for glob expansion are different when invoking a command from Python then when typing it
          # on the command line, hence why the overwrite parameter is '*python*' not '"*python*"'.
          #
          btLogger.log.info('Ensuring Python packaging is up-to-date')
-         btExecute.abortOnRunFail(subprocess.run(['pacman', '-S', '--noconfirm', '--overwrite', '*python*', 'mingw-w64-i686-python-packaging']))
-         btExecute.abortOnRunFail(subprocess.run(['pacman', '-S', '--noconfirm', '--overwrite', '*python*', 'mingw-w64-x86_64-python-packaging']))
+         btExecute.abortOnRunFail(subprocess.run(['pacman', '-S', '--noconfirm', '--overwrite', '*python*', 'mingw-w64-ucrt-x86_64-python-packaging']))
 
          #
          # Before we install packages, we want to make sure the MSYS2 installation itself is up-to-date, otherwise you
@@ -574,6 +568,9 @@ def installDependencies():
          #                  in Qt 6 (see https://doc.qt.io/qt-6/windows-deployment.html vs
          #                  https://doc.qt.io/qt-5/windows-deployment.html).
          #
+         # 2026-10-16: Switch from MINGW64 to UCRT64.  Latter uses the newer Windows runtime, and support for the former
+         #             is going away.  TLDR: Instead of installing mingw-w64-x86_64-foobar, we install mingw-w64-ucrt-x86_64-foobar
+         #
          arch = 'x86_64'
          installList = ['base-devel',
                         'cmake',
@@ -581,28 +578,29 @@ def installDependencies():
                         'doxygen',
                         'gcc',
                         'git',
-                        'mingw-w64-' + arch + '-boost',
-                        'mingw-w64-' + arch + '-cmake',
-                        'mingw-w64-' + arch + '-clang-libs', # Needed for lupdate
-                        'mingw-w64-' + arch + '-libbacktrace',
-                        'mingw-w64-' + arch + '-meson',
-                        'mingw-w64-' + arch + '-nsis',
-                        'mingw-w64-' + arch + '-freetype',
-                        'mingw-w64-' + arch + '-harfbuzz',
-                        'mingw-w64-' + arch + '-librsvg', # Possibly needed to include in packaging for SVG display
-                        'mingw-w64-' + arch + '-openssl', # OpenSSL headers and library
-                        'mingw-w64-' + arch + '-qt6-base',
-                        'mingw-w64-' + arch + '-qt6-declarative', # Also needed for lupdate?
-                        'mingw-w64-' + arch + '-qt6-static',
-                        'mingw-w64-' + arch + '-qt6-svg',
-                        'mingw-w64-' + arch + '-qt6-tools',
-                        'mingw-w64-' + arch + '-qt6-translations',
-                        'mingw-w64-' + arch + '-qt6',
-                        'mingw-w64-' + arch + '-toolchain',
-                        'mingw-w64-' + arch + '-libxml2',
-#                        'mingw-w64-' + arch + '-7zip', # To unzip NSIS plugins
-                        'mingw-w64-' + arch + '-angleproject', # See comment above
-                        'mingw-w64-' + arch + '-ntldd', # Dependency tool useful for running manually -- see below
+                        'meson',
+                        'mingw-w64-ucrt-' + arch + '-boost',
+                        'mingw-w64-ucrt-' + arch + '-cmake',
+                        'mingw-w64-ucrt-' + arch + '-clang-libs', # Needed for lupdate
+                        'mingw-w64-ucrt-' + arch + '-libbacktrace',
+                        'mingw-w64-ucrt-' + arch + '-meson',
+                        'mingw-w64-ucrt-' + arch + '-nsis',
+                        'mingw-w64-ucrt-' + arch + '-freetype',
+                        'mingw-w64-ucrt-' + arch + '-harfbuzz',
+                        'mingw-w64-ucrt-' + arch + '-librsvg', # Possibly needed to include in packaging for SVG display
+                        'mingw-w64-ucrt-' + arch + '-openssl', # OpenSSL headers and library
+                        'mingw-w64-ucrt-' + arch + '-qt6-base',
+                        'mingw-w64-ucrt-' + arch + '-qt6-declarative', # Also needed for lupdate?
+                        'mingw-w64-ucrt-' + arch + '-qt6-multimedia',
+                        'mingw-w64-ucrt-' + arch + '-qt6-static',
+                        'mingw-w64-ucrt-' + arch + '-qt6-svg',
+                        'mingw-w64-ucrt-' + arch + '-qt6-tools',
+                        'mingw-w64-ucrt-' + arch + '-qt6-translations',
+                        'mingw-w64-ucrt-' + arch + '-qt6',
+                        'mingw-w64-ucrt-' + arch + '-toolchain',
+                        'mingw-w64-ucrt-' + arch + '-libxml2',
+                        'mingw-w64-ucrt-' + arch + '-angleproject', # See comment above
+                        'mingw-w64-ucrt-' + arch + '-ntldd', # Dependency tool useful for running manually -- see below
                         ]
          for packageToInstall in installList:
             btLogger.log.debug('Installing ' + packageToInstall)
@@ -1207,6 +1205,66 @@ def installDependencies():
    btExecute.abortOnRunFail(subprocess.run(['sh', './configure']))
    btExecute.abortOnRunFail(subprocess.run(['make']))
    os.chdir(previousWorkingDirectory)
+
+   #
+   # Per comments elsewhere, we use Sourcemeta Blaze (https://github.com/sourcemeta/blaze) for JSON schema validation.
+   #
+   # Same principles apply as for libbackgrace above.
+   #
+   blazeDir = btFileSystem.dir_gitSubmodules.joinpath('blaze')
+   os.chdir(blazeDir)
+   btLogger.log.debug('Run cmake in ' + blazeDir.as_posix())
+   btExecute.abortOnRunFail(
+      subprocess.run([
+         'cmake',
+         '-S', '.', '-B', './build',
+         #
+         # These are mostly the same flags that get explicitly set the Blaze nightly builds -- see
+         # https://github.com/sourcemeta/blaze/blob/main/.github/workflows/ci.yml.  However, there are a few things we
+         # can turn off (eg benchmarks).
+         #
+         # In the native Blaze builds, warnings are treated as errors.  But on some platforms we're using different
+         # (versions of) different compilers.  So it's easier for us to turn them off.
+         #
+         '-DCMAKE_BUILD_TYPE:STRING=Release',
+         '-DBLAZE_TESTS:BOOL=ON',
+         '-DBLAZE_BENCHMARK:BOOL=OFF',
+         '-DBLAZE_CONTRIB:BOOL=ON',
+         '-DBLAZE_DOCS:BOOL=OFF',
+         '-DBUILD_SHARED_LIBS:BOOL=OFF',
+         '-DCMAKE_COMPILE_WARNING_AS_ERROR:BOOL=OFF',
+         #
+         # These flags are listed at https://blaze.sourcemeta.com/
+         #
+         '-DBLAZE_TEST:BOOL=OFF', # 'ON' would build the Blaze test runner library
+      ])
+   )
+   # I don't think we need to build clang_format_test, and it gives errors on Windows, so commented out for now.
+#   btExecute.abortOnRunFail(subprocess.run(['cmake', '--build', './build', '--config', 'Release', '--target', 'clang_format_test']))
+   btExecute.abortOnRunFail(subprocess.run(['cmake', '--build', 'build', '--config', 'Release', '--parallel', '4']))
+   #
+   # In Blaze's own nightly builds, they use the `--prefix ./build/dist` option to "install" to a subdirectory of the
+   # build directory.  This is attractive, given that Blaze is a static library, and we don't inherently need to install
+   # it system-wide.  However, it's proved fiddly trying to get everything to work on every platform.  So we do a
+   # belt-and-braces and install Blaze in both locations (ie system-wide and in the third-party/blaze/build/dist
+   # subdirectory).
+   #
+   # On Linux and Mac, we need sudo to install to the "standard" locations.  However, "sudo" does not exist on Windows,
+   # even in the MSYS2 environment.
+   #
+   sudoIfNeeded = []
+   if (platform.system() != 'Windows'):
+      sudoIfNeeded.append('sudo')
+
+   btExecute.abortOnRunFail(subprocess.run(['cmake', '--install', './build', '--prefix', './build/dist', '--config', 'Release', '--verbose', '--component', 'sourcemeta_core'     ]))
+   btExecute.abortOnRunFail(subprocess.run(['cmake', '--install', './build', '--prefix', './build/dist', '--config', 'Release', '--verbose', '--component', 'sourcemeta_core_dev' ]))
+   btExecute.abortOnRunFail(subprocess.run(['cmake', '--install', './build', '--prefix', './build/dist', '--config', 'Release', '--verbose', '--component', 'sourcemeta_blaze'    ]))
+   btExecute.abortOnRunFail(subprocess.run(['cmake', '--install', './build', '--prefix', './build/dist', '--config', 'Release', '--verbose', '--component', 'sourcemeta_blaze_dev']))
+
+   btExecute.abortOnRunFail(subprocess.run(sudoIfNeeded + ['cmake', '--install', './build', '--config', 'Release', '--verbose', '--component', 'sourcemeta_core'     ]))
+   btExecute.abortOnRunFail(subprocess.run(sudoIfNeeded + ['cmake', '--install', './build', '--config', 'Release', '--verbose', '--component', 'sourcemeta_core_dev' ]))
+   btExecute.abortOnRunFail(subprocess.run(sudoIfNeeded + ['cmake', '--install', './build', '--config', 'Release', '--verbose', '--component', 'sourcemeta_blaze'    ]))
+   btExecute.abortOnRunFail(subprocess.run(sudoIfNeeded + ['cmake', '--install', './build', '--config', 'Release', '--verbose', '--component', 'sourcemeta_blaze_dev']))
 
    btLogger.log.info('*** Finished checking / installing dependencies ***')
    return

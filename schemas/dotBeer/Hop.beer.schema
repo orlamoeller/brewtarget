@@ -1,5 +1,5 @@
 //======================================================================================================================
-// schema/Hop.beer.schema is part of DotBeer and is copyright the following authors 2018-2026:
+// schema/Hop.beer.schema is part of dotBeer and is copyright the following authors 2018-2026:
 //   • John Jenkman <45741477+johnjenkman@users.noreply.github.com>
 //   • Mark Price <shadowchao99@gmail.com>
 //   • Matt Young <mfsy@yahoo.com>
@@ -15,155 +15,197 @@
 //======================================================================================================================
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dotbeer.org/schema/Hop.beer.schema",
+  "$id": "https://dotbeer.org/schema/1.0.0/Hop.beer.schema",
   "type": "object",
-  "title": "Hop",
   "description": "Full definition of a hop variety.",
-  "allOf": [
-    {
-      "$ref": "#/$defs/HopBase"
+  "properties": {
+    "name": {
+      "type": "string"
     },
-    {
-      "properties": {
-        "type": {
-          "enum": [
-            "aroma",
-            "bittering",
-            "flavor",
-            "aroma/bittering",
-            "bittering/flavor",
-            "aroma/flavor",
-            "aroma/bittering/flavor"
-          ]
-        },
-        "notes": {
-          "type": "string"
-        },
-        "six_month_alpha_loss": {
-          "description": " Defined as the percentage of hop alpha lost in 6 months of storage.",
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "substitutes": {
-          "type": "string",
-          "description": "Alternate hop varieties that can be used in place of this hop variety"
-        },
-        "oil_content": {
-          "$ref": "#/$defs/OilContent"
-        },
-        "inventory": {
-          "$ref": "#/$defs/HopInventory"
-        }
-      }
-    }
-  ],
-  "$defs": {
-    "HopBase": {
-      "type": "object",
-      "title": "Base Hop Record",
-      "description": "Minimal properties to identify individual records of a hop variety.",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "producer": {
-          "type": "string"
-        },
-        "product_id": {
-          "type": "string"
-        },
-        "origin": {
-          "type": "string",
-          "description": "Country of origin for the hop variety"
-        },
-        "year": {
-          "type": "string"
-        },
-        "form": {
-          "enum": [
-            "extract",
-            "leaf",
-            "leaf (wet)",
-            "pellet",
-            "powder",
-            "plug"
-          ]
-        },
-        "alpha_acid": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "beta_acid": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        }
-      },
-      "required": [
-        "name",
-        "alpha_acid"
+    "local_id" : {
+      "description": "The \"local ID\" that allows other objects in this file (eg recipes) to refer to this hop.",
+      "$ref": "DotBeer.beer.schema#/$defs/LocalId"
+    },
+    "folder_path": {
+      "description": "The suggested slash-delimited subfolder path in which to store this Hop object.",
+      "$ref": "DotBeer.beer.schema#/$defs/FolderPath"
+    },
+    "producer": {
+      "description": "The grower or company that supplied the hops.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Producer’s product code or number for this item.",
+      "type": "string"
+    },
+    "origin": {
+      "type": "string",
+      "description": "Country of origin for the hop variety"
+    },
+    "year": {
+      "type": "string",
+      "description": "Year of harvest.  (Note that this is intentionally not a number, as, for one thing, years are not generally formatted in the same way as numbers.)"
+    },
+    "form": {
+      "description": "The physical form the hops are supplied in.",
+      "enum": [
+        "extract",
+        "leaf",
+        "leaf (wet)",
+        "pellet",
+        "powder",
+        "plug"
       ]
     },
-    "HopInventory": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "amount": {
-          "oneOf": [
-            {
-              "$ref": "Measurement.beer.schema#/$defs/Volume"
-            },
-            {
-              "$ref": "Measurement.beer.schema#/$defs/Mass"
-            }
-          ]
+    "alpha_acid": {
+      "description": "The actual alpha acid content of the specific year's harvest (and batch) of this type of hop.",
+      "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+    },
+    // Not in BeerJSON
+    "alpha_acid_range": {
+      "description": "The typical range of alpha acid for this type of hop.",
+      "$ref": "Measurement.beer.schema#/$defs/RangeOfPercentageSimple"
+    },
+    "beta_acid": {
+      "description": "The actual beta acid content of the specific year's harvest (and batch) of this type of hop.",
+      "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+    },
+    // Not in BeerJSON
+    "beta_acid_range": {
+      "description": "The typical range of beta acid for this type of hop.",
+      "$ref": "Measurement.beer.schema#/$defs/RangeOfPercentageSimple"
+    },
+    // Although it would be OK simply to call this field "type", we prefer to avoid using a JSON schema keyword as a
+    // property name.
+    "hop_type": {
+      "description": "What the variety is typically used for, given its aroma and bittering character.",
+      "enum": [
+        "aroma",
+        "bittering",
+        "flavor",
+        "aroma/bittering",
+        "bittering/flavor",
+        "aroma/flavor",
+        "aroma/bittering/flavor"
+      ]
+    },
+    "notes": {
+      "type": "string"
+    },
+    "six_month_alpha_loss": {
+      //
+      // BeerXML 1.0 calls this HSI for "Hop Stability Index" -- see eg
+      // https://hopdoctor.co.uk/2024/12/02/understanding-the-hop-stability-index-key-for-smaller-scale-brewers/.
+      //
+      // However, we changed the name (a) because "Hop Stability Index" does not appear to be a massively widely
+      // used term and (b) to avoid confusion with Hop Storage Index, which is derived from ultraviolet absorbance
+      // measured with a spectrophotometer (HSI = absorption at 275 nm divided by absorption at 325 nm, or
+      // A275/A325).
+      //
+      // In BeerJSON (and draft BeerXML 2.01), this is called `percent_lost`.
+      //
+      "description": "The percentage of hop alpha lost in 6 months of storage at room temperature (~20 °C).\n\nNote that this is percentage and not percentage points.  So, eg, if a hop starts out with 4.0% `alpha_acid` and has 25% `six_month_alpha_loss`, then we would expect its alpha acid to be 3.0% after six months in storage.",
+      "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+    },
+    "substitutes": {
+      "type": "string",
+      "description": "Alternate hop varieties that can be used in place of this hop variety"
+    },
+    //
+    // In BeerJSON, `cohumulone`, `polyphenols` and `xanthohumol` are inside `oil_content`, whose description says that
+    // each of its compounds is a percentage of the total oil.  But none of these three is a hop oil, and the figures
+    // that hop producers publish are a percentage of the alpha acids (cohumulone) or of hop mass (polyphenols and
+    // xanthohumol).  So we have them here, with the same meaning as the numbers quoted in practice (and therefore,
+    // usually, as the numbers in BeerJSON files).
+    //
+    "cohumulone": {
+      "description": "Cohumulone as a percentage of total hop alpha acids.\n\nCohumulone is one of the three main alpha acids (with humulone and adhumulone), and typically makes up 20–50% of a hop's alpha acids.  It is somewhat more soluble than the others and isomerises a little more readily during the boil.  A long-standing view among brewers is that high-cohumulone hops give a harsher bitterness, although the evidence for this is mixed.  (See eg https://en.wikipedia.org/wiki/Humulone.)",
+      "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+    },
+    "oil_content": {
+      "description": "The amount and make-up of the hop variety's essential oils.",
+      "$ref": "#/$defs/OilContent"
+    },
+    "polyphenols": {
+      "description": "Polyphenols as a percentage of hop mass.\n\nPolyphenols are a large family of naturally occurring phenols with \"several hydroxyl groups on aromatic rings\".  They include four principal classes: phenolic acids, flavonoids, stilbenes, and lignans.  Polyphenols in hops contribute to the astringency and fullness of beer's taste, enhancing its overall flavor profile.  They do not have a direct aroma but can affect beer taste by contributing to its mouthfeel, astringency, and haze formation.  Additionally, they play a role in beer stability, as they have antioxidant properties that can help prevent the oxidation of flavor compounds.",
+      "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+    },
+    "xanthohumol": {
+      "description": "Xanthohumol as a percentage of hop mass.\n\nXanthohumol is a natural flavonoid found in the female inflorescences of hops.  Its impact on beer taste is not as significant as that of alpha acids or essential oils, but it may contribute to the overall complexity and subtle nuances in beer flavors.  (Xanthohumol has also been the subject of considerable research for its potential health benefits, but typically in quantities far exceeding any amount that could be obtained by ordinary dietary intake.)",
+      "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+    }
+    // BeerJSON and BeerXML have `inventory` here, but we prefer to keep inventory separate and more detailed via
+    // StockPurchaseHop and StockUseHop
+  },
+  "required": [
+    "name",
+    "alpha_acid"
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "HopAmount" : {
+      "description": "The ways in which an amount of a Hop could be measured",
+      "oneOf": [
+        {
+          "$ref": "Measurement.beer.schema#/$defs/Volume"
+        },
+        {
+          "$ref": "Measurement.beer.schema#/$defs/Mass"
         }
-      }
+      ]
     },
     "OilContent": {
       "type": "object",
-      "description": "Collects all information of a hop variety pertaining to oil content, polyphenols, and thiols. Each individual compound is expressed as a percent of the total oil measurement.",
+      "description": "Collects all information of a hop variety pertaining to oil content.  With the exception of `total_oil_ml_per_100g`, each individual compound is expressed as a percent of the total oil measurement.  See https://beersmith.com/blog/2024/12/19/major-aromatic-hop-oils-in-beer-brewing/ for details on several of the oils.",
       "properties": {
         "total_oil_ml_per_100g": {
           "description": "The total amount of oil, including hydrocarbons, esters, and terpene alcohols in units of ml of oil per 100g of hop mass.",
-          "type": "number"
-        },
-        "humulene": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "caryophyllene": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "cohumulone": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
+          "type": "number",
+          "minimum": 0
         },
         "myrcene": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
+          "description": "Myrcene as a percentage of total hop oil.\n\nUsually the largest component of hop oil, often 30–60% in aroma varieties, and particularly high in many Pacific Northwest hops such as Cascade.  It gives fresh, green, resinous and herbaceous aromas.  Being very volatile and quick to oxidise, little of it survives the boil, and some is lost even in a hot whirlpool, so it mainly contributes via late and dry-hop additions.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
         },
-        "farnesene": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
+        "humulene": {
+          "description": "Humulene as a percentage of total hop oil.\n\nTypically the second-largest component, at roughly 10–50% of total oil.  It gives woody, earthy and spicy aromas and is characteristic of traditional noble hops.  It is volatile and does not dissolve readily in wort, so is best used in the whirlpool or as a dry hop.  Its oxidation products (humulene epoxides) contribute to the aroma of aged noble hops such as Hallertauer Mittelfrüh.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+        },
+        "caryophyllene": {
+          "description": "Caryophyllene (more formally β-caryophyllene) as a percentage of total hop oil.\n\nTypically 6–15% of total oil.  It gives woody, peppery, herbal and spicy aromas (it is also found in black pepper, cloves and rosemary), and is prominent in many English varieties such as East Kent Goldings.  It is less volatile than myrcene but still largely lost in the boil, so is best used late or as a dry hop.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
         },
         "geraniol": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "b_pinene": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
+          "description": "Geraniol as a percentage of total hop oil.\n\nA floral, rose-like compound found in many American, New Zealand and Australian varieties, and potent even in small amounts.  Yeast can convert some of it into citronellol during fermentation, adding citrus character, which is one reason geraniol-rich hops are popular for fruity, tropical IPAs, and why some brewers dry hop while fermentation is still active.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
         },
         "linalool": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
+          "description": "Linalool as a percentage of total hop oil.\n\nGives floral, citrus and lavender-like aromas.  Although usually a small fraction of the oil, it is more soluble in wort than myrcene and has a low aroma threshold, so it can have a disproportionate effect on the finished beer.  Like geraniol, it is associated with the fruity, floral character of modern IPAs.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+        },
+        "farnesene": {
+          "description": "Farnesene as a percentage of total hop oil.\n\nVaries widely between varieties: absent or trace in many, but a substantial share (around 10–20%) in some noble-type hops such as Saaz and Tettnanger.  It gives woody, herbal and sometimes floral or citrus notes, so a high farnesene content is a hint of noble-hop character.  It is very volatile and rarely survives into the beer except from dry hopping.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+        },
+        "b_pinene": {
+          "description": "β-Pinene as a percentage of total hop oil.\n\nA minor component with piney, green and woody aromas.  Like other monoterpenes, it dissolves poorly in water but readily in alcohol.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+        },
+        // BeerJSON has `pinene`, which is presumably α-pinene, as it has `b_pinene` separately
+        "a_pinene": {
+          "description": "α-Pinene as a percentage of total hop oil.\n\nAlpha-Pinene (an isomer of beta-pinene) has a distinctly woody, herbal scent and can be found in cone-bearing trees and herbs like rosemary.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
         },
         "limonene": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
+          "description": "Limonene as a percentage of total hop oil.\n\nLimonene is a relatively stable monoterpene occurring naturally in citrus fruit peels, hops and numerous coniferous and broadleaved trees.  Limonene delivers a powerful citrus character, and is associated with punchy citrus based hops, such as Citra, Simcoe and Centennial.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
         },
         "nerol": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "pinene": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "polyphenols": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "xanthohumol": {
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
+          "description": "Nerol as a percentage of total hop oil.\n\nNerol is an isomer of geraniol.  Like geraniol, it has a sweet rose odor but it is considered to be fresher.  Its aroma is described as sweet, natural, neroli, citrus, magnolia, fresh, floral, green, lemon, and lime.",
+          "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
         }
-      }
+      },
+      "unevaluatedProperties": false
     }
   }
 }

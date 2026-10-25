@@ -36,6 +36,7 @@
 #include "measurement/Amount.h"
 #include "measurement/ConstrainedAmount.h"
 #include "measurement/Unit.h"
+#include "model/FolderPropertyBase.h"
 #include "model/Ingredient.h"
 #include "model/IngredientBase.h"
 #include "model/IngredientAmount.h"
@@ -65,6 +66,7 @@ AddPropertyName(di_ph                 )
 AddPropertyName(dmsP_ppm              )
 AddPropertyName(fan_ppm               )
 AddPropertyName(fermentability_pct    )
+AddPropertyName(fermentableFraction_pct)
 AddPropertyName(fineGrindYield_pct    )
 AddPropertyName(friability_pct        )
 AddPropertyName(grainGroup            )
@@ -105,7 +107,8 @@ class Fermentable : public Ingredient,
    INGREDIENT_BASE_DECL(Fermentable)
    FOLDER_BASE_DECL(Fermentable)
    // See model/FolderPropertyBase.h for info, getters and setters for these properties
-   Q_PROPERTY(int containedInFolderId   READ containedInFolderId   WRITE setContainedInFolderId)
+   Q_PROPERTY(int     containedInFolderId     READ containedInFolderId     WRITE setContainedInFolderId  )
+   Q_PROPERTY(QString containedInFolderPath   READ containedInFolderPath   WRITE setContainedInFolderPath)
 
 public:
    /**
@@ -123,6 +126,7 @@ public:
    static QString localisedName_dmsP_ppm              ();
    static QString localisedName_fan_ppm               ();
    static QString localisedName_fermentability_pct    ();
+   static QString localisedName_fermentableFraction_pct();
    static QString localisedName_fineGrindYield_pct    ();
    static QString localisedName_friability_pct        ();
    static QString localisedName_grainGroup            ();
@@ -271,9 +275,9 @@ public:
     *        Note that \c coarseFineDiff_pct = \c fineGrindYield_pct - \c coarseGrindYield_pct
     *        .:TODO:. We should attempt to enforce this when two or more of the values are set.
     */
-   Q_PROPERTY(std::optional<double>   coarseFineDiff_pct     READ coarseFineDiff_pct     WRITE setCoarseFineDiff_pct                 )
+   Q_PROPERTY(std::optional<double> coarseFineDiff_pct     READ coarseFineDiff_pct     WRITE setCoarseFineDiff_pct                 )
    //! \brief The moisture in pct.  Only appropriate for a "Grain" or "Other_Adjunct" type.   NB Optional in both BeerXML and BeerJSON.
-   Q_PROPERTY(std::optional<double>   moisture_pct           READ moisture_pct           WRITE setMoisture_pct                       )
+   Q_PROPERTY(std::optional<double> moisture_pct           READ moisture_pct           WRITE setMoisture_pct                       )
    //! \brief The diastatic power in Lintner.  Only appropriate for a "Grain" or "Other_Adjunct" type.  NB Optional in both BeerXML and BeerJSON.
    Q_PROPERTY(std::optional<double> diastaticPower_lintner READ diastaticPower_lintner WRITE setDiastaticPower_lintner             )
    //! \brief The percent protein.  Only appropriate for a "Grain" or "Other_Adjunct" type.  NB Optional in both BeerXML and BeerJSON.
@@ -391,7 +395,7 @@ public:
    Q_PROPERTY(std::optional<double> hardnessPrpMealy_pct    READ hardnessPrpMealy_pct    WRITE setHardnessPrpMealy_pct  )
 
    /**
-    * \brief Percentage of grain that is "plump". The percentage of grain that masses through sieves with gaps of 7/64″
+    * \brief Percentage of grain that is "plump". The percentage of grain retained on sieves with gaps of 7/64″
     *        and 6/64″, desired values of 80% or higher which indicate plump kernels.
     *
     *        From https://byo.com/article/understanding-malt-spec-sheets-advanced-brewing/:
@@ -513,7 +517,7 @@ public:
    Q_PROPERTY(std::optional<double> betaGlucan_ppm   READ betaGlucan_ppm   WRITE setBetaGlucan_ppm)
 
    /**
-    * \brief For aciduated malts (aka acid malts), this is the percentage content by weight of lactic acid (which is
+    * \brief For acidulated malts (aka acid malts), this is the percentage content by weight of lactic acid (which is
     *        usually what provides the acidity).  You might think that maltsters would be keen to give you this figure,
     *        but they often prefer to say things such as "1% of this malt in the grain bill reduces the mash pH by
     *        approximately 0.1", which is less helpful.  According to https://www.brunwater.com/water-knowledge, "The
@@ -523,6 +527,18 @@ public:
     *        NB: This is not part of BeerXML or BeerJSON.
     */
    Q_PROPERTY(std::optional<double> lacticAcidByWeight_pct   READ lacticAcidByWeight_pct   WRITE setLacticAcidByWeight_pct)
+
+   /**
+    * \brief The percentage of this ingredient's extract that brewing yeast can ferment.  The remainder raises OG and FG
+    *        but is not attenuated.  Unset means 100%.  Eg about 0% for lactose and ~10% for maltodextrin.
+    *
+    *        This is for wholly or largely unfermentable ingredients; it should not normally be set for malts, as yeast
+    *        attenuation figures already allow for the dextrins in a normal all-malt wort.  (Contrast
+    *        \c fermentability_pct, which is an apparent attenuation, and so already includes the effect of the yeast.)
+    *
+    *        NB: This is not part of BeerXML or BeerJSON.  It is in dotBeer as `fermentable_fraction`.
+    */
+   Q_PROPERTY(std::optional<double> fermentableFraction_pct   READ fermentableFraction_pct   WRITE setFermentableFraction_pct)
 
    SUPPORT_NUM_RECIPES_USED_IN
 
@@ -564,10 +580,17 @@ public:
    std::optional<double>     betaGlucan_ppm           () const;
 
    std::optional<double>     lacticAcidByWeight_pct   () const;
+   std::optional<double>     fermentableFraction_pct  () const;
 
    // Calculated getters.
    bool    isExtract             () const;
    bool    isSugar               () const;
+   /**
+    * \brief Returns \c true if this fermentable's extract is already present as sugar (sugars, extracts, honey, fruit,
+    *        juice) and so is \b not subject to mash efficiency; \c false if it is starch that has to be converted by
+    *        the mash (grains and, by default, "other" adjuncts such as flaked or torrified cereals).
+    */
+   bool    isExistingSugar       () const;
 
    //============================================ "SETTER" MEMBER FUNCTIONS ============================================
    void setType                     (Type                      const   val);
@@ -607,6 +630,7 @@ public:
    void setBetaGlucan_ppm           (std::optional<double>     const   val);
 
    void setLacticAcidByWeight_pct   (std::optional<double>     const   val);
+   void setFermentableFraction_pct  (std::optional<double>     const   val);
 
 protected:
    virtual bool compareWith(NamedEntity const & other, QList<BtStringConst const *> * propertiesThatDiffer) const override;
@@ -648,6 +672,7 @@ private:
    std::optional<double>     m_betaGlucan_ppm         = std::nullopt;
 
    std::optional<double>     m_lacticAcidByWeight_pct = std::nullopt;
+   std::optional<double>     m_fermentableFraction_pct = std::nullopt;
 };
 
 BT_DECLARE_METATYPES(Fermentable)

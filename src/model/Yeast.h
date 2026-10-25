@@ -27,6 +27,7 @@
 #include <QString>
 #include <QStringList>
 
+#include "model/FolderPropertyBase.h"
 #include "model/Ingredient.h"
 #include "model/IngredientBase.h"
 #include "model/IngredientAmount.h"
@@ -85,7 +86,8 @@ class Yeast : public Ingredient,
    INGREDIENT_BASE_DECL(Yeast)
    FOLDER_BASE_DECL(Yeast)
    // See model/FolderPropertyBase.h for info, getters and setters for these properties
-   Q_PROPERTY(int containedInFolderId   READ containedInFolderId   WRITE setContainedInFolderId)
+   Q_PROPERTY(int     containedInFolderId     READ containedInFolderId     WRITE setContainedInFolderId  )
+   Q_PROPERTY(QString containedInFolderPath   READ containedInFolderPath   WRITE setContainedInFolderPath)
 
 public:
    /**
@@ -183,7 +185,7 @@ public:
     */
    static EnumStringMapping const formDisplayNames;
 
-   //! \brief How flocculant the strain is.
+   //! \brief Flocculation refers to the ability of yeast to aggregate to form large flocs which drop out of suspension.
    enum class Flocculation {
       // BeerJSON has an entire type called QualitativeRangeType, but it's only used for this field, so, for now, we
       // treat it as an enum
@@ -221,7 +223,7 @@ public:
    //
    using CatalogClass              = YeastCatalog;
    using EditorClass               = YeastEditor;
-   using StockPurchaseClass            = StockPurchaseYeast;
+   using StockPurchaseClass        = StockPurchaseYeast;
    using ItemDelegateClass         = YeastItemDelegate;
    using RecipeAdditionClass       = RecipeAdditionYeast;
    using SortFilterProxyModelClass = YeastSortFilterProxyModel;

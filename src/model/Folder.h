@@ -66,7 +66,9 @@ public:
 
    //=================================================== PROPERTIES ====================================================
    //! The ID of the folder (if any) that contains this one
-   Q_PROPERTY(int containedInFolderId   READ containedInFolderId   WRITE setContainedInFolderId)
+   Q_PROPERTY(int     containedInFolderId     READ containedInFolderId     WRITE setContainedInFolderId  )
+   //! The full path of the folder (if any) that contains this one
+   Q_PROPERTY(QString containedInFolderPath   READ containedInFolderPath   WRITE setContainedInFolderPath)
 
    //! \brief The \c path is the names of all the parent folders concatenated together with '/'
    Q_PROPERTY(QString path     READ path     /*WRITE setPath*/    )
@@ -75,12 +77,43 @@ public:
    Q_PROPERTY(QString fullPath READ fullPath /*WRITE setFullPath*/)
 
    //============================================ "GETTER" MEMBER FUNCTIONS ============================================
-   [[nodiscard]] virtual int containedInFolderId() const = 0;
+   [[nodiscard]] virtual int     containedInFolderId  () const = 0;
+   [[nodiscard]] virtual QString containedInFolderPath() const = 0;
    [[nodiscard]] virtual QString path() const = 0;
    [[nodiscard]] virtual QString fullPath() const = 0;
 
    //============================================ "SETTER" MEMBER FUNCTIONS ============================================
-   virtual void setContainedInFolderId(int const var) = 0;
+   virtual void setContainedInFolderId  (int     const   var) = 0;
+   virtual void setContainedInFolderPath(QString const & var) = 0;
+
+   //================================================= OTHER FUNCTIONS =================================================
+   /**
+    * Concatenates two paths, ensuring the correct number of slashes between them.  Eg  "/foo" + "/bar", "/foo" + "bar",
+    * "/foo/" + "/bar" all give the same result ("/foo/bar").
+    *
+    * @param leftPath   It is OK for this to be "" or "/"
+    * @param rightPath  It is OK for this to be "" or "/"
+    * @return
+    */
+   [[nodiscard]] static QString joinPaths(QString const & leftPath, QString const & rightPath);
+
+   /**
+    * Converts \c fullPath to a sub-path of \c basePath if \c basePath is a prefix of \c fullPath.  Otherwise returns
+    * \c fullPath unchanged.
+    *
+    * @param basePath
+    * @param fullPath
+    * @return
+    */
+   [[nodiscard]] static QString subPath(QString const & basePath, QString const & fullPath);
+
+   /**
+    * @brief Given two folder paths, modifies the first one to be the common path prefix of both
+    *
+    * @param baseFolderPath
+    * @param folderPath
+    */
+   static void commonPathPrefix(QString & baseFolderPath, QString const & folderPath);
 
 protected:
    bool compareWith(NamedEntity const & other, QList<BtStringConst const *> * propertiesThatDiffer) const override;
@@ -114,7 +147,15 @@ class Folder : public FolderCommon, public FolderPropertyBase<Folder<NE>, IsFold
    friend class FolderPropertyBase<Folder<NE>, IsFolder::Yes>;
 public:
    [[nodiscard]] int containedInFolderId() const override { return this->doContainedInFolderId(); }
+   [[nodiscard]] QString containedInFolderPath() const override {
+      Folder<NE> const * const containedIn = this->containedInFolderRaw();
+      return containedIn ? containedIn->fullPath() : QString{"/"};
+   }
    void setContainedInFolderId(int const val) override { this->doSetContainedInFolderId(val); return; }
+   void setContainedInFolderPath(QString const & val) override {
+      this->doSetContainedInFolderId(Folder<NE>::ensure(val)->key());
+      return;
+   }
    static std::shared_ptr<Folder<NE>> getById(int const id) { return ObjectStoreWrapper::getById<Folder<NE>>(id); }
    static Folder<NE> * getByIdRaw(int const id) { return ObjectStoreWrapper::getByIdRaw<Folder<NE>>(id); }
    //
@@ -195,17 +236,15 @@ public:
    }
 
    /**
-    * \brief Returns a \c Folder for the supplied full path (which must not be empty), creating any folders (and parent
-    *        folders) as needed.
-    *
-    * @param path
-    * @return
+    *\brief Does the work for \c get and \c ensure
     */
-   static Folder<NE> * createFromPath(QString const & path) {
+   static Folder<NE> * getAndOptionallyCreate(QString const & fullPath, bool const createIfNotFound) {
       Folder<NE> * folder = nullptr;
-      QStringList pieces = path.split("/", Qt::SkipEmptyParts);
-      Q_ASSERT(!pieces.empty());
-      while(!pieces.empty()) {
+      QStringList pieces = fullPath.split("/", Qt::SkipEmptyParts);
+      if (pieces.empty()) {
+         return nullptr;
+      }
+      while (!pieces.empty()) {
          auto const parentId = folder ? folder->key() : -1;
          QString const folderName = pieces.takeFirst();
          std::shared_ptr<Folder<NE>> subFolder = ObjectStoreWrapper::findFirstMatching<Folder<NE>>(
@@ -219,16 +258,40 @@ public:
                return (val->name() == folderName);
             }
          );
-         // If we didn't find the sub-folder, we need to create it
+         // If we didn't find the sub-folder, we either bail or create it, depending on which behaviour the caller
+         // requested.
          if (!subFolder) {
-            subFolder = std::make_shared<Folder<NE>>(folderName);
-            subFolder->setContainedInFolderId(folder ? folder->key() : -1);
-            ObjectStoreWrapper::insert(subFolder);
+            if (createIfNotFound) {
+               subFolder = std::make_shared<Folder<NE>>(folderName);
+               subFolder->setContainedInFolderId(folder ? folder->key() : -1);
+               ObjectStoreWrapper::insert(subFolder);
+            } else {
+               return nullptr;
+            }
          }
          folder = subFolder.get();
       }
 
       return folder;
+   }
+
+   /**
+    * \brief Returns the \c Folder with the supplied full path, or \c nullptr if no such folder exists.
+    */
+   static Folder<NE> * get(QString const & fullPath) {
+      return Folder<NE>::getAndOptionallyCreate(fullPath, false);
+   }
+
+   /**
+    * \brief Returns a \c Folder for the supplied full path, creating any folders (and parent folders) as needed.
+    *
+    *        If "" or "/" is specified as the fullPath, then \c nullptr is returned
+    *
+    * @param fullPath
+    * @return
+    */
+   static Folder<NE> * ensure(QString const & fullPath) {
+      return Folder<NE>::getAndOptionallyCreate(fullPath, true);
    }
 
    /**
@@ -245,10 +308,44 @@ public:
    }
 
    /**
+    * Recursively get either the NE or the Folder<NE> children of this folder and its subfolders
+    * @return
+    */
+   template<class ChildType>
+   QList<std::shared_ptr<ChildType>> descendants() const requires (std::same_as<ChildType, NE> ||
+                                                                   std::same_as<ChildType, Folder<NE>>) {
+      QList<std::shared_ptr<ChildType>> result = this->children<ChildType>();
+
+      QList<std::shared_ptr<Folder<NE>>> subFolders;
+      if constexpr (std::same_as<ChildType, NE>) {
+         subFolders = this->children<Folder<NE>>();
+      } else {
+         // We don't need to call children<Folder<NE>>() here as we already called it to populate result
+         subFolders = result;
+      }
+      for (auto const & subFolder : subFolders) {
+         result.append(subFolder->template descendants<ChildType>());
+      }
+      return result;
+   }
+
+   /**
     * Convenience wrappers for above
     */
    QList<std::shared_ptr<NE>        > childItems  () const { return this->children<NE        >(); }
    QList<std::shared_ptr<Folder<NE>>> childFolders() const { return this->children<Folder<NE>>(); }
+   int numChildren() const {
+      return this->childItems().size() + this->childFolders().size();
+   }
+   bool empty() const {
+      // This isn't the most efficient way to do this, but it works, and we can always optimise it later if need be.
+      return this->numChildren() == 0;
+   }
+   QList<std::shared_ptr<NE>        > descendantItems  () const { return this->descendants<NE        >(); }
+   QList<std::shared_ptr<Folder<NE>>> descendantFolders() const { return this->descendants<Folder<NE>>(); }
+   int numDescendants() const {
+      return this->descendantItems().size() + this->descendantFolders().size();
+   }
 
 protected:
    [[nodiscard]] ObjectStore & getObjectStoreTypedInstance() const override {
@@ -258,13 +355,17 @@ protected:
 private:
 
    /**
+    * Implementation for path() and fullPath().  Constructs a path working back up through the parent folders.
     *
-    * @param startWith
+    * @param startWith Either blank or the name of the object for which we are constructing a path, depending on whether
+    *                  we are implementing path() or fullPath().
     * @return
     */
    [[nodiscard]] QString doPath(QString const & startWith) const {
       QString myPath = startWith;
       for (auto myParent = this->containedInFolderRaw(); myParent; myParent = myParent->containedInFolderRaw()) {
+         // A folder can't ever be its own parent.
+         Q_ASSERT(myParent != myParent->containedInFolderRaw());
          myPath = QString("%1/%2").arg(myParent->name()).arg(myPath);
       }
       return myPath;

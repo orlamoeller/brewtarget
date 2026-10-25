@@ -1,5 +1,5 @@
 /*╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
- * serialization/json/JsonRecordDefinition.cpp is part of Brewtarget, and is copyright the following authors 2020-2024:
+ * serialization/json/JsonRecordDefinition.cpp is part of Brewtarget, and is copyright the following authors 2020-2026:
  *   • Matt Young <mfsy@yahoo.com>
  *
  * Brewtarget is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License
@@ -21,19 +21,23 @@
 
 namespace {
    EnumStringMapping const fieldTypeToName {
-      {JsonRecordDefinition::FieldType::Bool                      , QObject::tr("Bool"                      )},
-      {JsonRecordDefinition::FieldType::Int                       , QObject::tr("Int"                       )},
-      {JsonRecordDefinition::FieldType::UInt                      , QObject::tr("UInt"                      )},
-      {JsonRecordDefinition::FieldType::Double                    , QObject::tr("Double"                    )},
-      {JsonRecordDefinition::FieldType::String                    , QObject::tr("String"                    )},
-      {JsonRecordDefinition::FieldType::Enum                      , QObject::tr("Enum"                      )},
-      {JsonRecordDefinition::FieldType::Record                    , QObject::tr("Record"                    )},
-      {JsonRecordDefinition::FieldType::ListOfRecords             , QObject::tr("ListOfRecords"             )},
-      {JsonRecordDefinition::FieldType::Date                      , QObject::tr("Date"                      )},
-      {JsonRecordDefinition::FieldType::MeasurementWithUnits      , QObject::tr("MeasurementWithUnits"      )},
-      {JsonRecordDefinition::FieldType::OneOfMeasurementsWithUnits, QObject::tr("OneOfMeasurementsWithUnits")},
-      {JsonRecordDefinition::FieldType::SingleUnitValue           , QObject::tr("SingleUnitValue"           )},
-      {JsonRecordDefinition::FieldType::RequiredConstant          , QObject::tr("RequiredConstant"          )},
+      {JsonRecordDefinition::FieldType::Bool                      , QObject::tr("Bool"                          )},
+      {JsonRecordDefinition::FieldType::Int                       , QObject::tr("Int"                           )},
+      {JsonRecordDefinition::FieldType::UInt                      , QObject::tr("UInt"                          )},
+      {JsonRecordDefinition::FieldType::Double                    , QObject::tr("Double"                        )},
+      {JsonRecordDefinition::FieldType::String                    , QObject::tr("String"                        )},
+      {JsonRecordDefinition::FieldType::Enum                      , QObject::tr("Enum"                          )},
+      {JsonRecordDefinition::FieldType::Record                    , QObject::tr("Record"                        )},
+      {JsonRecordDefinition::FieldType::ListOfRecords             , QObject::tr("List-Of-Records"               )},
+      {JsonRecordDefinition::FieldType::Date                      , QObject::tr("Date"                          )},
+      {JsonRecordDefinition::FieldType::DateTimeOffset            , QObject::tr("Date-Time-With-Timezone"       )},
+      {JsonRecordDefinition::FieldType::DateOrDateTimeLocal       , QObject::tr("Date-or-Date-Time-Local"       )},
+      {JsonRecordDefinition::FieldType::MeasurementWithUnits      , QObject::tr("Measurement-With-Units"        )},
+      {JsonRecordDefinition::FieldType::OneOfMeasurementsWithUnits, QObject::tr("One-Of-Measurements-With-Units")},
+      {JsonRecordDefinition::FieldType::SingleUnitValue           , QObject::tr("Single-Unit-Value"             )},
+      {JsonRecordDefinition::FieldType::RequiredConstant          , QObject::tr("Required-Constant"             )},
+      {JsonRecordDefinition::FieldType::FolderPath                , QObject::tr("Folder-Path"                   )},
+      {JsonRecordDefinition::FieldType::LocalId                   , QObject::tr("Local-ID"                      )},
    };
 }
 
@@ -92,9 +96,10 @@ JsonRecordDefinition::JsonRecordDefinition(
    return;
 }
 
-std::unique_ptr<JsonRecord> JsonRecordDefinition::makeRecord(JsonCoding const & jsonCoding,
-                                                             boost::json::value & recordData) const {
-   return this->jsonRecordConstructorWrapper(jsonCoding, recordData, *this);
+[[nodiscard]] std::unique_ptr<JsonRecord> JsonRecordDefinition::makeRecord(LocalIdToDbId * localIdToDbId,
+                                                                           JsonCoding const & jsonCoding,
+                                                                           boost::json::value & recordData) const {
+   return this->jsonRecordConstructorWrapper(localIdToDbId, jsonCoding, recordData, *this);
 }
 
 

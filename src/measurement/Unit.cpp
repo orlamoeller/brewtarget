@@ -631,6 +631,7 @@ namespace Measurement::Units {
 
    // === Volume ===
    // Where possible, the multipliers for going to and from litres come from www.conversion-metric.org as it seems to offer the most decimal places on its conversion tables
+   // Info on tablespoons and teaspoons comes from https://en.wikipedia.org/wiki/Tablespoon and https://en.wikipedia.org/wiki/Teaspoon
    Unit const liters              {Measurement::UnitSystems::volume_Metric     , {QObject::tr("L"   )}, defaultSanitiser};
    Unit const milliliters         {Measurement::UnitSystems::volume_Metric     , {QObject::tr("mL"  )}, defaultSanitiser, 1.0/1000.0          , &liters};
    Unit const us_barrels          {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("bbl" )}, defaultSanitiser, 117.34777           , &liters};
@@ -638,17 +639,17 @@ namespace Measurement::Units {
    Unit const us_quarts           {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("qt"  )}, defaultSanitiser,   0.94635294599999  , &liters};
    Unit const us_pints            {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("pt"  )}, defaultSanitiser,   0.473176473       , &liters};
    Unit const us_cups             {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("cup" )}, defaultSanitiser,   0.23658823648491  , &liters, 0.25};
-   Unit const us_fluidOunces      {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("floz")}, defaultSanitiser,   0.029573529564112 , &liters};
-   Unit const us_tablespoons      {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("tbsp")}, defaultSanitiser,   0.014786764782056 , &liters};
-   Unit const us_teaspoons        {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("tsp" )}, defaultSanitiser,   0.0049289215940186, &liters};
+   Unit const us_fluidOunces      {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("floz")}, defaultSanitiser,   0.029573529564112 , &liters}; // 1/16 of US pint
+   Unit const us_tablespoons      {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("tbsp")}, defaultSanitiser,   0.014786764782056 , &liters}; // 1/2 US fluid ounce
+   Unit const us_teaspoons        {Measurement::UnitSystems::volume_UsCustomary, {QObject::tr("tsp" )}, defaultSanitiser,   0.0049289215940186, &liters}; // 1/3 US tablespoon
    Unit const imperial_barrels    {Measurement::UnitSystems::volume_Imperial   , {QObject::tr("bbl" )}, defaultSanitiser, 163.659             , &liters};
    Unit const imperial_gallons    {Measurement::UnitSystems::volume_Imperial   , {QObject::tr("gal" )}, defaultSanitiser,   4.54609           , &liters}; // See https://en.wikipedia.org/wiki/Gallon
    Unit const imperial_quarts     {Measurement::UnitSystems::volume_Imperial   , {QObject::tr("qt"  )}, defaultSanitiser,   1.1365225         , &liters};
    Unit const imperial_pints      {Measurement::UnitSystems::volume_Imperial   , {QObject::tr("pt"  )}, defaultSanitiser,   0.56826125        , &liters};
    Unit const imperial_cups       {Measurement::UnitSystems::volume_Imperial   , {QObject::tr("cup" )}, defaultSanitiser,   0.284130625       , &liters, 0.25};
-   Unit const imperial_fluidOunces{Measurement::UnitSystems::volume_Imperial   , {QObject::tr("floz")}, defaultSanitiser,   0.028413075003383 , &liters};
-   Unit const imperial_tablespoons{Measurement::UnitSystems::volume_Imperial   , {QObject::tr("tbsp")}, defaultSanitiser,   0.0177581714      , &liters};
-   Unit const imperial_teaspoons  {Measurement::UnitSystems::volume_Imperial   , {QObject::tr("tsp" )}, defaultSanitiser,   0.00591939047     , &liters};
+   Unit const imperial_fluidOunces{Measurement::UnitSystems::volume_Imperial   , {QObject::tr("floz")}, defaultSanitiser,   0.0284130625      , &liters}; // 1/20 of imperial pint
+   Unit const imperial_tablespoons{Measurement::UnitSystems::volume_Imperial   , {QObject::tr("tbsp")}, defaultSanitiser,   0.01420653125     , &liters}; // 1/2 imperial fluid ounce
+   Unit const imperial_teaspoons  {Measurement::UnitSystems::volume_Imperial   , {QObject::tr("tsp" )}, defaultSanitiser,   0.0035516328125   , &liters}; // 1⁄8 imperial fluid ounce
 
    // === Length ===
    // I suppose we could use the other official abbreviations for feet and inches -- either the real ones (see
@@ -697,12 +698,12 @@ namespace Measurement::Units {
    //    SRM.  However, modern analytical methods show that SRM and Lovibond diverge for darker colors.  Comparison of
    //    EBC and Lovibond data published by modern maltsters shows that the relationship between SRM and Lovibond (°L)
    //    is:
-   //       SRM = 1.3456 × °L - 0.76
+   //       SRM = 1.3546 × °L - 0.76
    //
    Unit const srm     {Measurement::UnitSystems::color_StandardReferenceMethod  , {QObject::tr("srm"     )}, defaultSanitiser};
    Unit const ebc     {Measurement::UnitSystems::color_EuropeanBreweryConvention, {QObject::tr("ebc"     )}, defaultSanitiser, 12.7/25.0, &srm};
    Unit const lovibond{Measurement::UnitSystems::color_Lovibond                 , {QObject::tr("lovibond")}, defaultSanitiser,
-                       [](double const val_lovibond){return (1.3456 * val_lovibond) - 0.76;},
+                       [](double const val_lovibond){return (1.3546 * val_lovibond) - 0.76;},
                        [](double const val_srm     ){return (val_srm + 0.76) / 1.3456;},
                        &srm};
 
@@ -710,7 +711,7 @@ namespace Measurement::Units {
    // Brix isn't much used in beer brewing, but BeerJSON supports it, so we have it here.
    // Per https://en.wikipedia.org/wiki/Beer_measurement, Plato and Brix are "essentially ... the same ([both based on
    // mass fraction of sucrose) [and only] differ in their conversion from weight percentage to specific gravity in the
-   // fifth and sixth decimal places"
+   // fifth and sixth decimal places".
    //
    // NOTE: Because specific gravity is actually measuring something different (density) than plato and brix (sugar
    //       content), the conversions here have a built-in assumption that, when we are converting to or from specific
@@ -788,15 +789,26 @@ namespace Measurement::Units {
    Unit const joulesPerKelvin       {Measurement::UnitSystems::heatCapacity_Joules      , {QObject::tr("J/K"  )}, defaultSanitiser, 1.0/4184.0, &kilocaloriesPerCelsius};
    Unit const btuPerFahrenheit      {Measurement::UnitSystems::heatCapacity_Btus        , {QObject::tr("BTU/F")}, defaultSanitiser, 0.45359237, &kilocaloriesPerCelsius};
 
-   // == Specific Volume ==
-   Unit const litresPerKilogram     {Measurement::UnitSystems::specificVolume_Metric     , {QObject::tr("L/kg"   )}, defaultSanitiser};
-   Unit const litresPerGram         {Measurement::UnitSystems::specificVolume_Metric     , {QObject::tr("L/g"    )}, defaultSanitiser, 1000.0             , &litresPerKilogram};
-   Unit const cubicMetersPerKilogram{Measurement::UnitSystems::specificVolume_Metric     , {QObject::tr("m^3/kg" )}, defaultSanitiser, 1000.0             , &litresPerKilogram};
-   Unit const us_fluidOuncesPerOunce{Measurement::UnitSystems::specificVolume_UsCustomary, {QObject::tr("floz/oz")}, defaultSanitiser,   66.7632356142    , &litresPerKilogram};
-   Unit const us_gallonsPerPound    {Measurement::UnitSystems::specificVolume_UsCustomary, {QObject::tr("gal/lb" )}, defaultSanitiser,    8.34540445177617, &litresPerKilogram};
-   Unit const us_quartsPerPound     {Measurement::UnitSystems::specificVolume_UsCustomary, {QObject::tr("qt/lb"  )}, defaultSanitiser,    2.08635111294   , &litresPerKilogram};
-   Unit const us_gallonsPerOunce    {Measurement::UnitSystems::specificVolume_UsCustomary, {QObject::tr("gal/oz" )}, defaultSanitiser,    0.521587778236  , &litresPerKilogram};
-   Unit const cubicFeetPerPound     {Measurement::UnitSystems::specificVolume_UsCustomary, {QObject::tr("ft^3/lb")}, defaultSanitiser,   62.4279605755126 , &litresPerKilogram};
+   // == Volume Per Mass ==
+   Unit const litresPerKilogram     {Measurement::UnitSystems::volumePerMass_Metric     , {QObject::tr("L/kg"   )}, defaultSanitiser};
+   Unit const litresPerGram         {Measurement::UnitSystems::volumePerMass_Metric     , {QObject::tr("L/g"    )}, defaultSanitiser, 1000.0             , &litresPerKilogram};
+   Unit const cubicMetersPerKilogram{Measurement::UnitSystems::volumePerMass_Metric     , {QObject::tr("m^3/kg" )}, defaultSanitiser, 1000.0             , &litresPerKilogram};
+   Unit const us_fluidOuncesPerOunce{Measurement::UnitSystems::volumePerMass_UsCustomary, {QObject::tr("floz/oz")}, defaultSanitiser,   66.7632356142    , &litresPerKilogram};
+   Unit const us_gallonsPerPound    {Measurement::UnitSystems::volumePerMass_UsCustomary, {QObject::tr("gal/lb" )}, defaultSanitiser,    8.34540445177617, &litresPerKilogram};
+   Unit const us_quartsPerPound     {Measurement::UnitSystems::volumePerMass_UsCustomary, {QObject::tr("qt/lb"  )}, defaultSanitiser,    2.08635111294   , &litresPerKilogram};
+   Unit const us_gallonsPerOunce    {Measurement::UnitSystems::volumePerMass_UsCustomary, {QObject::tr("gal/oz" )}, defaultSanitiser,    0.521587778236  , &litresPerKilogram};
+   Unit const cubicFeetPerPound     {Measurement::UnitSystems::volumePerMass_UsCustomary, {QObject::tr("ft^3/lb")}, defaultSanitiser,   62.4279605755126 , &litresPerKilogram};
+
+   // == Energy Per Volume ==
+   Unit const kilocaloriesPerLiter     {Measurement::UnitSystems::energyPerVolume_Metric         , {QObject::tr("kcal/L"     )}, defaultSanitiser};
+   Unit const kilocaloriesPer50cl      {Measurement::UnitSystems::energyPerVolume_Metric         , {QObject::tr("kcal/50cl"  )}, defaultSanitiser, 100.0/50.0, &kilocaloriesPerLiter};
+   Unit const kilocaloriesPer33cl      {Measurement::UnitSystems::energyPerVolume_Metric         , {QObject::tr("kcal/33cl"  )}, defaultSanitiser, 100.0/33.0, &kilocaloriesPerLiter};
+   Unit const kilocaloriesPer25cl      {Measurement::UnitSystems::energyPerVolume_Metric         , {QObject::tr("kcal/25cl"  )}, defaultSanitiser, 100.0/25.0, &kilocaloriesPerLiter};
+   Unit const kilocaloriesPer100ml     {Measurement::UnitSystems::energyPerVolume_Metric         , {QObject::tr("kcal/100ml" )}, defaultSanitiser, 100.0/10.0, &kilocaloriesPerLiter};
+   Unit const kilocaloriesPer16us_floz {Measurement::UnitSystems::energyPerVolume_UsCustomary    , {QObject::tr("kcal/pt"    )}, defaultSanitiser,      2.113, &kilocaloriesPerLiter};
+   Unit const kilocaloriesPer12us_floz {Measurement::UnitSystems::energyPerVolume_UsCustomary    , {QObject::tr("kcal/12floz")}, defaultSanitiser,      2.818, &kilocaloriesPerLiter};
+   Unit const kilocaloriesPer20imp_floz{Measurement::UnitSystems::energyPerVolume_Imperial       , {QObject::tr("kcal/pt"    )}, defaultSanitiser,      1.760, &kilocaloriesPerLiter};
+   Unit const kilojoulesPer100ml       {Measurement::UnitSystems::energyPerVolume_MetricAlternate, {QObject::tr("kJ/100ml"   )}, defaultSanitiser, 10.0/4.184, &kilocaloriesPerLiter};
 
    ObjectAddressStringMapping<Unit> const unitStringMapping {
       {

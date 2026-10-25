@@ -38,15 +38,16 @@ class BtStringConst;
 class Recipe;
 
 // Define the columns on this table
+// *** NB: These need to be in the same order as in the COLUMN_INFOS macro in the .cpp file! ***
 COLUMN_NAMES(RecipeAdditionHopTableModel, Name          ,
-                                          Form          ,
                                           Alpha         ,
-                                          Year          ,
                                           Amount        ,
-                                          AmountType    ,
-                                          TotalInventory,
                                           Stage         ,
-                                          Time          ,)
+                                          Time          ,
+                                          Form          ,
+                                          Year          ,
+                                          AmountType    ,
+                                          TotalInventory,)
 
 /*!
  * \class RecipeAdditionHopTableModel

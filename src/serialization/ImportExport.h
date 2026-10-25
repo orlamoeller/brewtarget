@@ -60,11 +60,13 @@ namespace ImportExport {
     *        similar to how other programs work (eg LibreOffice, Gimp), so I think it's OK, but we'll see what feedback
     *        is on usability.
     *
+    * \param targetFolderPath The folder to put things in (will be created if doesn't exist).
+    *                         "" or "/" means don't put in a folder.
     * \param inputFiles If \c std::nullopt (ie not supplied) then user will be prompted for file(s) through the UI
     *
     * \return \c true if succeeded, \c false otherwise
     */
-   bool importFromFiles(std::optional<QStringList> inputFiles = std::nullopt);
+   bool importFromFiles(QString const & targetFolderPath, std::optional<QStringList> inputFiles = std::nullopt);
 
    /**
     * \brief Export recipes, hops, equipment, etc to a BeerXML or BeerJSON file specified by the user
@@ -74,24 +76,25 @@ namespace ImportExport {
     *        Each of the parameters is allowed to be \c nullptr or an empty list, but it is the caller's responsibility
     *        to ensure that not \b all of them are!
     *
-    * \param recipes
-    * \param equipments
-    * \param fermentables
-    * \param hops
-    * \param miscs
-    * \param styles
-    * \param waters
-    * \param yeasts
+    * \param baseFolderPath If this is set, and if the output format is dotBeer, then this prefix will be removed from
+    *                       the folder path(s) of the exported objects.  Eg, if a Hop is in folder /foo/bar/hum/bug, and
+    *                       baseFolderPath is set to "/foo/bar" then the dotBeer folder_path property will be written as
+    *                       "hum/bug".
+    *
+    *                       If this is not a prefix for an object's folder path, then that folder path is written as is.
+    *                       (Eg, if a Fermentable is in folder /ding/dang/dong, and baseFolderPath is set to "/foo/bar"
+    *                       then the dotBeer folder_path property will be written as "ding/dang/dong".)
+    * \param exportLists
     *
     * \return \c true if succeeded, \c false otherwise
     */
-   bool exportToFile(Lists const & exportLists);
+   bool exportToFile(QString const & baseFolderPath, Lists const & exportLists);
 
    /**
     * \brief Version for when we know we're only exporting one type of thing
     *
     */
-   template<typename NE> bool exportToFile(QList<NE const *> const & items);
+   template<typename NE> bool exportToFile(QString const & baseFolderPath, QList<NE const *> const & items);
 }
 
 #endif

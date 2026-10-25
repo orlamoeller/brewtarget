@@ -2718,10 +2718,6 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Import (from BeerXML or BeerJSON)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Merge selected</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2791,6 +2787,18 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
     </message>
     <message>
         <source>Nothing is selected or none of the selected things can be exported</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Contained in Folder Path</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Export (to dotBeer, BeerXML or BeerJSON)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import (from dotBeer, BeerXML or BeerJSON)</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -3937,10 +3945,6 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Hop Stability Index</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Humulene</source>
         <translation type="unfinished">Humulene</translation>
     </message>
@@ -4006,6 +4010,26 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
     </message>
     <message>
         <source>% Beta</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Max % Alpha</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Min % Alpha</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Max % Beta</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Min % Beta</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Six Month Alpha Loss</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -6438,27 +6462,7 @@ Log file may contain more details.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>MeasurementWithUnits</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>OneOfMeasurementsWithUnits</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>SingleUnitValue</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>RequiredConstant</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>At node %1, error was %2</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>%1 errors found in JSON file.  First error: </source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6819,6 +6823,34 @@ Log file may contain more details.</source>
     </message>
     <message>
         <source>Unrecognised (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>List-Of-Records</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Measurement-With-Units</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>One-Of-Measurements-With-Units</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Single-Unit-Value</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Required-Constant</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folder-Path</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 errors found in JSON file.  First error at %2: schema condition %3 is violated because &quot;%4&quot;</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -7838,6 +7870,14 @@ Il Volume finale del primo è %1.</translation>
     <message>
         <source>Change Apparent Attenuation</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Calories/33cl</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Calories/12oz</source>
+        <translation type="unfinished">Calorie/340gr</translation>
     </message>
 </context>
 <context>
@@ -11263,11 +11303,11 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>HSI</source>
-        <translation>HSI</translation>
+        <translation type="vanished">HSI</translation>
     </message>
     <message>
         <source>Hop Stability/Storage index</source>
-        <translation>Satabilità Luppolo/Indce di Stoccaggio</translation>
+        <translation type="vanished">Satabilità Luppolo/Indce di Stoccaggio</translation>
     </message>
     <message>
         <source>Origin</source>
@@ -11335,7 +11375,7 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>Alpha %</source>
-        <translation type="unfinished">Alpha %</translation>
+        <translation type="obsolete">Alpha %</translation>
     </message>
     <message>
         <source>Extras</source>
@@ -11347,10 +11387,6 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>Myrcene %</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Beta %</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -11515,6 +11551,46 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>Create a new stock purchase record for this hop</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alpha Acid</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Actual</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Typical Range</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Min alpha acids as percent by mass</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>-</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Max alpha acids as percent by mass</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Beta Acid</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Min beta acids as percent by mass</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Max beta acids as percent by mass</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>6 Month Alpha Loss</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -11731,7 +11807,7 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>Calories/12oz</source>
-        <translation>Calorie/340gr</translation>
+        <translation type="vanished">Calorie/340gr</translation>
     </message>
     <message>
         <source>Extras</source>
@@ -12087,7 +12163,7 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>1.0</source>
-        <translation>1.0</translation>
+        <translation type="vanished">1.0</translation>
     </message>
     <message>
         <source>Strike Water Calculator</source>
@@ -12118,15 +12194,7 @@ Il Volume finale del primo è %1.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Tar&amp;get Boil Size</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Recipe Locked</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Target Batch Si&amp;ze</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -12135,7 +12203,7 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>Boil Size</source>
-        <translation type="unfinished">Misura bollitura</translation>
+        <translation type="obsolete">Misura bollitura</translation>
     </message>
     <message>
         <source>&amp;Export to File</source>
@@ -12303,6 +12371,26 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>Efficienc&amp;y</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Target</source>
+        <translation type="unfinished">Obiettivo</translation>
+    </message>
+    <message>
+        <source>Calculated</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Calculated final volume into the primary</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pre-Boil Volume</source>
+        <translation type="unfinished">Volume pre bollitura</translation>
+    </message>
+    <message>
+        <source>Calculated preboil volume - See Boil tab below</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -13473,10 +13561,6 @@ Il Volume finale del primo è %1.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Always show snapshots</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>&lt;qt&gt;
    &lt;b&gt;Know another language?&lt;/b&gt;
    &lt;br&gt;&lt;br&gt;
@@ -13524,6 +13608,10 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>Default boil time to set on new recipes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show snapshots by default</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -13743,7 +13831,7 @@ Il Volume finale del primo è %1.</translation>
     </message>
     <message>
         <source>Asst. Brewer</source>
-        <translation>Assistente Birraio</translation>
+        <translation type="vanished">Assistente Birraio</translation>
     </message>
     <message>
         <source>Taste Rating</source>
@@ -13812,6 +13900,18 @@ Il Volume finale del primo è %1.</translation>
     <message>
         <source>Date Created</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Assistant Brewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Calories/12oz</source>
+        <translation type="unfinished">Calorie/340gr</translation>
+    </message>
+    <message>
+        <source>1.0</source>
+        <translation type="unfinished">1.0</translation>
     </message>
 </context>
 <context>

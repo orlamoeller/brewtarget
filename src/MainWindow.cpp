@@ -161,7 +161,7 @@
 #include "utils/OptionalHelpers.h"
 #include "widgets/WaterAdjuster.h"
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_MainWindow.cpp"
 #endif
@@ -503,8 +503,10 @@ public:
          Q_FUNC_INFO << "Logo default size:" << this->m_self.label_Brewtarget->width() << "×" <<
          this->m_self.label_Brewtarget->height();
       this->m_self.label_Brewtarget->setScaledContents(true);
-      this->m_self.label_Brewtarget->setFixedSize((265.0/66.0) * dpiX/2,  // width = 265/66 × height = 265/66 × half an inch = (265/66) × (dpiX/2)
-                                               dpiY/2);                // height = half an inch = dpiY/2
+      this->m_self.label_Brewtarget->setFixedSize(
+         static_cast<int>((265.0/66.0) * dpiX/2),  // width = 265/66 × height = 265/66 × half an inch = (265/66) × (dpiX/2)
+         dpiY/2                                    // height = half an inch = dpiY/2
+      );
       qDebug() <<
          Q_FUNC_INFO << "Logo new size:" << this->m_self.label_Brewtarget->width() << "×" <<
          this->m_self.label_Brewtarget->height();
@@ -845,7 +847,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), pimpl{std::make_u
    //
    SMART_FIELD_INIT(MainWindow, label_name           , lineEdit_name       , Recipe, PropertyNames::NamedEntity::name        );
    SMART_FIELD_INIT(MainWindow, label_targetBatchSize, lineEdit_batchSize  , Recipe, PropertyNames::Recipe::batchSize_l   , 2);
-   SMART_FIELD_INIT(MainWindow, label_targetBoilSize , value_targetBoilSize, Boil  , PropertyNames::Boil::preBoilSize_l   , 2);
+   SMART_FIELD_INIT(MainWindow, label_finalVolume    , value_finalVolume   , Recipe, PropertyNames::Recipe::finalVolume_l , 2);
+   SMART_FIELD_INIT(MainWindow, label_targetBoilSize , value_preBoilSize, Boil  , PropertyNames::Boil::preBoilSize_l   , 2);
    SMART_FIELD_INIT(MainWindow, label_efficiency     , lineEdit_efficiency , Recipe, PropertyNames::Recipe::efficiency_pct, 1);
    SMART_FIELD_INIT(MainWindow, label_boilTime       , value_boilTime      , Boil  , PropertyNames::Boil::boilTime_mins   , 0);
    SMART_FIELD_INIT(MainWindow, label_boilSg         , value_boilSg        , Recipe, PropertyNames::Recipe::boilGrav      , 3);
@@ -853,8 +856,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), pimpl{std::make_u
    SMART_FIELD_INIT_NO_SF(MainWindow, label_og       , Recipe, PropertyNames::Recipe::og         );
    SMART_FIELD_INIT_NO_SF(MainWindow, label_fg       , Recipe, PropertyNames::Recipe::fg         );
    SMART_FIELD_INIT_NO_SF(MainWindow, label_color    , Recipe, PropertyNames::Recipe::color_srm  );
-   SMART_FIELD_INIT_NO_SF(MainWindow, label_batchSize, Recipe, PropertyNames::Recipe::batchSize_l);
-   SMART_FIELD_INIT_NO_SF(MainWindow, label_boilSize , Boil  , PropertyNames::Boil::preBoilSize_l);
 
    // Stop things looking ridiculously tiny on high DPI displays
    this->pimpl->setSizesInPixelsBasedOnDpi();
@@ -1099,25 +1100,7 @@ void MainWindow::setupRanges() {
    styleRangeWidget_ibu->setPrecision(1);
    styleRangeWidget_ibu->setTickMarks(10, 2);
 
-   // definitely cheating, but I don't feel like making a whole subclass just to support this
-   // or the next.
-   rangeWidget_batchSize->setRange(0, this->pimpl->m_recipeObs == nullptr ? 19.0 : this->pimpl->m_recipeObs->batchSize_l());
-   rangeWidget_batchSize->setPrecision(1);
-   rangeWidget_batchSize->setTickMarks(2,5);
-
-   rangeWidget_batchSize->setBackgroundBrush(QColor(255,255,255));
-   rangeWidget_batchSize->setPreferredRangeBrush(QColor(55,138,251));
-   rangeWidget_batchSize->setMarkerBrush(QBrush(Qt::NoBrush));
-
-   rangeWidget_boilsize->setRange(0, this->pimpl->m_recipeObs == nullptr? 24.0 : this->pimpl->m_recipeObs->boilVolume_l());
-   rangeWidget_boilsize->setPrecision(1);
-   rangeWidget_boilsize->setTickMarks(2,5);
-
-   rangeWidget_boilsize->setBackgroundBrush(QColor(255,255,255));
-   rangeWidget_boilsize->setPreferredRangeBrush(QColor(55,138,251));
-   rangeWidget_boilsize->setMarkerBrush(QBrush(Qt::NoBrush));
-
-   int const srmMax = 50;
+   int constexpr srmMax = 50;
    styleRangeWidget_srm->setRange(0.0, static_cast<double>(srmMax));
    styleRangeWidget_srm->setPrecision(1);
    styleRangeWidget_srm->setTickMarks(10, 2);
@@ -1608,7 +1591,7 @@ void MainWindow::showChanges(QMetaProperty* prop) {
    this->lineEdit_efficiency->setQuantity(this->pimpl->m_recipeObs->efficiency_pct());
    // TODO: One day we'll want to do some work to properly handle no-boil recipes....
    std::optional<double> const boilSize = this->pimpl->m_recipeObs->boil() ? this->pimpl->m_recipeObs->boil()->preBoilSize_l() : std::nullopt;
-   this->value_targetBoilSize->setQuantity(boilSize);
+   this->value_preBoilSize->setQuantity(boilSize);
    this->value_boilTime->setQuantity(this->pimpl->m_recipeObs->boil() ? this->pimpl->m_recipeObs->boil()->boilTime_mins() : 0.0);
    this->value_boilSg  ->setQuantity(this->pimpl->m_recipeObs->boilGrav());
    this->lineEdit_name      ->setCursorPosition(0);
@@ -1636,7 +1619,7 @@ void MainWindow::showChanges(QMetaProperty* prop) {
       lineEdit_calcBoilSize->setStyleSheet(this->pimpl->highSS);
 */
 
-   auto style = this->pimpl->m_recipeObs->style();
+   auto const style = this->pimpl->m_recipeObs->style();
    if (style) {
       updateDensitySlider(*this->styleRangeWidget_og, *this->label_og, style->ogMin(), style->ogMax(), 1.120);
    }
@@ -1650,17 +1633,9 @@ void MainWindow::showChanges(QMetaProperty* prop) {
    this->styleRangeWidget_abv->setValue(this->pimpl->m_recipeObs->ABV_pct());
    this->styleRangeWidget_ibu->setValue(this->pimpl->m_recipeObs->IBU());
 
-   this->rangeWidget_batchSize->setRange         (0,
-                                                  this->label_batchSize->getAmountToDisplay(this->pimpl->m_recipeObs->batchSize_l()));
-   this->rangeWidget_batchSize->setPreferredRange(0,
-                                                  this->label_batchSize->getAmountToDisplay(this->pimpl->m_recipeObs->finalVolume_l()));
-   this->rangeWidget_batchSize->setValue         (this->label_batchSize->getAmountToDisplay(this->pimpl->m_recipeObs->finalVolume_l()));
 
-   this->rangeWidget_boilsize->setRange         (0,
-                                                 this->label_boilSize->getAmountToDisplay(boilSize.value_or(0.0)));
-   this->rangeWidget_boilsize->setPreferredRange(0,
-                                                 this->label_boilSize->getAmountToDisplay(this->pimpl->m_recipeObs->boilVolume_l()));
-   this->rangeWidget_boilsize->setValue         (this->label_boilSize->getAmountToDisplay(this->pimpl->m_recipeObs->boilVolume_l()));
+   this->value_finalVolume->setQuantity(this->pimpl->m_recipeObs->finalVolume_l());
+
 
    // Colors need the same basic treatment as gravity
    if (style) {
@@ -1679,16 +1654,6 @@ void MainWindow::showChanges(QMetaProperty* prop) {
       gravityUnits = 1;
    }
    this->ibuGuSlider->setValue(this->pimpl->m_recipeObs->IBU()/gravityUnits);
-
-   label_calories->setText(
-      QString("%1").arg(
-         Measurement::getDisplayUnitSystem(Measurement::PhysicalQuantity::Volume) == Measurement::UnitSystems::volume_Metric ?
-         this->pimpl->m_recipeObs->caloriesPer33cl() : this->pimpl->m_recipeObs->caloriesPerUs12oz(),
-         0,
-         'f',
-         0
-      )
-   );
 
    // See if we need to change the mash in the table.
    if (this->pimpl->m_recipeObs->mash() && (updateAll || propName == PropertyNames::Recipe::mash)) {
@@ -1862,7 +1827,7 @@ void MainWindow::droppedRecipeEquipment(Equipment * kitRaw) {
       // won't ever be seen by the user, but there's no harm in setting them.
       // (The previous call here to this->pimpl->m_mashEditor->setRecipe() was a roundabout way of calling setTunWeight_kg() and
       // setMashTunSpecificHeat_calGC() on the mash.)
-      new SimpleUndoableUpdate(*this->pimpl->m_recipeObs, TYPE_INFO(Recipe, batchSize_l), kit->fermenterBatchSize_l(), tr("Change Batch Size"), equipmentUpdate);
+      new SimpleUndoableUpdate(*this->pimpl->m_recipeObs, TYPE_INFO(Recipe, batchSize_l), kit->fvBatchSize_l(), tr("Change Batch Size"), equipmentUpdate);
 
       auto const boil = this->pimpl->m_recipeObs->nonOptBoil();
       new SimpleUndoableUpdate(*boil, TYPE_INFO(Boil, preBoilSize_l), kit->kettleBoilSize_l(), tr("Change Boil Size"), equipmentUpdate);
@@ -2073,7 +2038,7 @@ void MainWindow::exportRecipe() {
    QList<Recipe const *> recipes;
    recipes.append(this->pimpl->m_recipeObs);
 
-   bool const exportResult = ImportExport::exportToFile(recipes);
+   bool const exportResult = ImportExport::exportToFile(QString{"/"}, recipes);
    if (exportResult) {
       this->updateStatus(tr("Wrote recipe to file"));
    } else {
@@ -2179,7 +2144,7 @@ std::shared_ptr<Recipe>  MainWindow::newRecipe() {
       // I really want to do this before we've written the object to the
       // database
       if (auto const equipment = ObjectStoreWrapper::getById<Equipment>(defEquipKey.toInt())) {
-         newRec->setBatchSize_l( equipment->fermenterBatchSize_l() );
+         newRec->setBatchSize_l( equipment->fvBatchSize_l() );
          newBoil->setPreBoilSize_l( equipment->kettleBoilSize_l() );
          newRec->setEquipment(equipment);
       }
@@ -2274,9 +2239,9 @@ void MainWindow::restoreFromBackup() {
    return;
 }
 
-// Imports all the recipes, hops, equipment or whatever from a BeerXML or BeerJSON file into the database.
+// Imports all the recipes, hops, equipment or whatever from a DotBeer, BeerXML or BeerJSON file into the database.
 void MainWindow::importFiles() {
-   ImportExport::importFromFiles();
+   ImportExport::importFromFiles("");
    return;
 }
 
@@ -2507,7 +2472,7 @@ void MainWindow::exportSelected() const {
    exportLists.waters       = &waters      ;
    exportLists.yeasts       = &yeasts      ;
 
-   ImportExport::exportToFile(exportLists);
+   ImportExport::exportToFile(QString{"/"}, exportLists);
    return;
 }
 

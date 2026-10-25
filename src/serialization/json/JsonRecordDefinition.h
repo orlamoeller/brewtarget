@@ -21,6 +21,7 @@
 #include <utility> // For std::in_place_type_t
 #include <variant>
 
+#include <QHash>
 #include <QVector>
 
 #include "model/NamedEntity.h"
@@ -107,7 +108,7 @@ public:
     *       means we have a lot more "base" types than for BeerXML or ObjectStore.  (It also means that it's harder for
     *       the schema to do bounds validation on such values.)
     *
-    *       In some cases, BeerJSON and DotBeer only allow one unit of measurement, but the same structure of {unit,
+    *       In some cases, BeerJSON and dotBeer only allow one unit of measurement, but the same structure of {unit,
     *       value} is maintained for readability and extensibility.
     *
     *       The main BeerJSON base types are:
@@ -153,8 +154,12 @@ public:
     *       BitternessType for the members of BitternessRangeType, etc).  This means we can treat it as two separate
     *       entries that differ by XPath (blah/minimum and blah/maximum).
     *
-    *       BeerJSON also has DateType which is a regexp restriction on a string.  The regexp is a bit cumbersome, but
-    *       it boils down to allowing either of the following formats where 'd' is a digit (ie 0-9):
+    *       In dotBeer it's a similar story, but we drop the Smurf naming (Volume instead of VolumeType, RangeOfGravity
+    *       instead of GravityRangeType etc.)
+    *
+    *       BeerJSON also has DateType (and it's Date in dotBeer) which is a regexp restriction on a string.  The regexp
+    *       is a bit cumbersome, but it boils down to allowing either of the following formats where 'd' is a digit
+    *       (ie 0-9):
     *          dddd-dd-dd
     *          dddd-dd-ddTdd:dd:dd
     *       We take this to mean ISO 8601 is used for date fields.  (Hurrah!)
@@ -188,11 +193,18 @@ public:
       //
       // === Other types start here ===
       //
-      // For now we treat Date as synonymous with the BeerJSON date type (DateType in measurable_units.json in the
-      // BeerJSON schema).  We'll wait to worry about doing something more generic until another JSON format comes
-      // along (if ever).
+      // Date
       //
       Date,
+      //
+      // Timestamp including timezone
+      //
+      DateTimeOffset,
+      //
+      // This is the BeerJSON "date" type (DateType in measurable_units.json in the BeerJSON schema), which is actually
+      // "either a date or a date and time, but without timezone".
+      //
+      DateOrDateTimeLocal,
       //
       // MeasurementWithUnits covers most cases where we need to convert between a value plus unit (used a lot in
       // BeerJSON) and our internal canonical (usually SI) units via a Measurement::Unit constant.
@@ -226,14 +238,62 @@ public:
       // "number without units" (eg number of apples or number of packets of yeast).
       //
       SingleUnitValue,
-      RequiredConstant  // A fixed value we have to write out in the record (used for BeerJSON VERSION tag)
+      RequiredConstant,  // A fixed value we have to write out in the record (used for BeerJSON VERSION tag)
+      //
+      // In dotBeer, we can specify a subfolder path for any free-standing object.  This is useful if you want to export
+      // a lot of objects with some structure (eg yeasts grouped by type or by lab)
+      //
+      FolderPath,
+      //
+      // A string that, within a dotBeer file, uniquely identifies something (eg hop, fermentable, style, mash) that
+      // is used in a recipe in that same file.  No two items in a single files should have the same local ID, even if
+      // they are of different types.  (This is to make reading files simpler, as a single look-up map can be used for
+      // all different types.)  The string has no meaning in any wider scope: it is a cross-reference rather than a true
+      // attribute.
+      //
+      // In dotBeer, rather than put a full definition of an ingredient, style, mash, etc in a recipe, we include all
+      // such things earlier in the file and then cross-refer to them.  This means that, eg, if you have two Fuggles
+      // additions, you only need one Fuggles definition; if you have two recipes with the same style or mash profile,
+      // you don't repeat the definitions etc.
+      //
+      // To make this work, each ingredient, style, mash, etc that is going to be referenced in a recipe needs to have
+      // a "local" ID.  In this context, "local" means "local to the file".  As mentioned above, such local IDs should
+      // be unique within the file.  Eg not only should each hop in a file should have local ID that is different not
+      // only from every other hop in the file but also from fermentable, misc, yeast, style, boil, mash etc in the
+      // file.  (In practice, we do this by making all local IDs somewhat descriptive -- eg "Hop_1", "Fermentable_1".)
+      // Thus, when we're reading in a file, we can maintain a single map from Local ID to real ID for all objects of
+      // all types.
+      //
+      // NOTE: Within a `FieldDefinition` (see below), a LocalId record is "the local ID of this object" if it has no
+      //       propertyPath.  If a LocalId record does have a propertyPath, then this field is a reference to another
+      //       object, and the propertyPath is where we store the (real) ID of that object (eg
+      //       PropertyNames::Recipe::styleId).  In the latter case, the valueDecoder field tells us what class is
+      //       referred to (eg &Style::staticMetaObject).
+      //
+      LocalId,
    };
+
+   /**
+    * \brief A "database ID", which is just a primary key (ie \c NamedEntity::key()) and the name of class to which it
+    *        relates.
+    *
+    *        This is used when we're reading in a JSON file that contains JsonRecordDefinition::FieldType::LocalId
+    *        records.  We don't strictly need to store the class name, but it's a good sanity check that, eg, a recipe's
+    *        style ID is the ID of a style rather than, say, a hop.
+    */
+   struct DbId {
+      char const * namedEntityClassName;
+      int id;
+   };
+
+   using LocalIdToDbId = QHash<QString, DbId>;
 
    /**
     * This is used in \c ValueDecoder.  When we are writing a property that is a QString, there are certain
     * circumstances where we want either to sanitise the value or to suppress writing the field altogether.  For
     * instance, in BeerJSON, the \c style::style_letter field is allowed to be omitted, but is not allowed to be blank
-    * (or anything other than a single character that is either an upper case letter or a space).
+    * (or anything other than a single character that is either an upper case letter or a space).  In dotBeer, the rule
+    * for the \c style::style_letter field is even slightly more strict, in that we don't allow it to be a space.
     *
     * A \c StringOutputValidator function takes the field value and returns:
     *   - std::nullopt if the field should not be written at all
@@ -279,6 +339,11 @@ public:
     *        If \c type is \c JsonRecordDefinition::FieldType::SingleUnitValue, then this is a field that either only
     *        has one unit or has no units, and \c valueDecoder.singleUnitSpecifier tells us what name(s) of unit is/are
     *        valid.
+    *
+    *        If \c type is \c JsonRecordDefinition::FieldType::LocalId \b and \c propertyPath is NOT
+    *        \c BtString::NULL_STR, then \c valueDecoder.metaObject allows us to get the class name.  (Although we could
+    *        have just stored `char const *` classname, a pointer to QMetaObject is about the same overhead and is a bit
+    *        more strongly typed, in that it's harder to accidentally give the wrong value.)
     */
    struct FieldDefinition {
       FieldType    type;
@@ -291,6 +356,7 @@ public:
                       ListOfJsonMeasureableUnitsMappings const *,  // FieldType::OneOfMeasurementsWithUnits
                       JsonSingleUnitSpecifier            const *,  // FieldType::SingleUnitValue
                       JsonRecordDefinition               const *,  // FieldType::ListOfRecords
+                      QMetaObject                        const *,  // FieldType::LocalId with non-null propertyPath
                       StringOutputValidator                     >; // FieldType::String
       ValueDecoder valueDecoder;
       /**
@@ -318,18 +384,20 @@ public:
     *        winded in the definitions.)
     */
    template<typename JRT>
-   static std::unique_ptr<JsonRecord> create(JsonCoding           const & jsonCoding,
+   static std::unique_ptr<JsonRecord> create(LocalIdToDbId              * localIdToDbId,
+                                             JsonCoding           const & jsonCoding,
                                              boost::json::value         & recordData,
                                              JsonRecordDefinition const & recordDefinition) {
-      return std::make_unique<JRT>(jsonCoding, recordData, recordDefinition);
+      return std::make_unique<JRT>(localIdToDbId, jsonCoding, recordData, recordDefinition);
    }
 
    /**
     * \brief This is just a convenience typedef representing a pointer to a template instantiation of
     *        \b JsonRecordDefinition::create().
     */
-   typedef std::unique_ptr<JsonRecord> (*JsonRecordConstructorWrapper)(JsonCoding const & jsonCoding,
-                                                                       boost::json::value & recordData,
+   typedef std::unique_ptr<JsonRecord> (*JsonRecordConstructorWrapper)(LocalIdToDbId              * localIdToDbId,
+                                                                       JsonCoding           const & jsonCoding,
+                                                                       boost::json::value         & recordData,
                                                                        JsonRecordDefinition const & recordDefinition);
 
    /**
@@ -418,7 +486,9 @@ public:
     * \brief This is the simplest way to get the right type of \c JsonRecord for this \c JsonRecordDefinition.  It
     *        ensures you get the right subclass (if any) of \c JsonRecord.
     */
-   std::unique_ptr<JsonRecord> makeRecord(JsonCoding const & jsonCoding, boost::json::value & recordData) const;
+   [[nodiscard]] std::unique_ptr<JsonRecord> makeRecord(LocalIdToDbId * localIdToDbId,
+                                                        JsonCoding const & jsonCoding,
+                                                        boost::json::value & recordData) const;
 
 public:
 

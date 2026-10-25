@@ -21,8 +21,8 @@
 
 #include <libxml2/libxml/tree.h>
 
+#include "serialization/xml/XmlDocument.h"
 #include "serialization/xml/XmlRecordDefinition.h"
-#include "serialization/xml/XmlLibHelpers.h"
 #include "serialization/SerializationRecord.h"
 #include "utils/ImportRecordCount.h"
 #include "utils/TypeLookup.h"
@@ -38,7 +38,7 @@ class XmlCoding;
  *        more detail.
  *
  *        Note that one structural difference between \c XmlRecord and \c JsonRecord is that, in the former we only pass
- *        underlying (ie Xalan) record data in when we are reading from XML, not when we are writing, so the parameter
+ *        underlying (ie libxml2) record data in when we are reading from XML, not when we are writing, so the parameter
  *        is on the \c load function, not the constructor.  The main reason for this is that, with XML, we do the output
  *        manually, without using the library.  In contrast, for JSON, we use the library to both read and write
  *        records.
@@ -63,7 +63,7 @@ public:
              XmlRecordDefinition const & recordDefinition);
 
    // Need a virtual destructor as we have virtual member functions
-   virtual ~XmlRecord();
+   ~XmlRecord() override;
 
    virtual SerializationRecordDefinition const & recordDefinition() const override;
 
@@ -77,8 +77,8 @@ public:
     *
     * \return \b true if load succeeded, \b false if there was an error
     */
-   bool load(XmlLibHelpers::XmlDocument & document,
-             xmlNode                    & rootNodeOfRecord,
+   bool load(XmlDocument & document,
+             xmlNode     & rootNodeOfRecord,
              QTextStream & userMessage);
 
    /**
@@ -103,7 +103,7 @@ private:
     *        process (eg Hop records inside a Recipe).  But the algorithm for processing is generic, so we implement it
     *        in this base class.
     */
-   bool loadChildRecords(XmlLibHelpers::XmlDocument & document,
+   bool loadChildRecords(XmlDocument & document,
                          XmlRecordDefinition::FieldDefinition const & parentFieldDefinition,
                          XmlRecordDefinition const & childRecordDefinition,
                          std::vector<xmlNode *> & nodesForCurrentXPath,

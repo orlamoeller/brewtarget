@@ -23,13 +23,13 @@
 #include <QObject>
 #include <QString>
 
-#include <valijson/adapters/boost_json_adapter.hpp>
-#include <valijson/schema.hpp>
-#include <valijson/schema_parser.hpp>
-#include <valijson/validator.hpp>
+#include <boost/json/serialize.hpp>
+
+#include <sourcemeta/blaze/compiler.h>
+#include <sourcemeta/core/json.h>
+#include <sourcemeta/blaze/output_simple.h> // For sourcemeta::blaze::SimpleOutput
 
 #include "serialization/json/JsonUtils.h"
-#include "utils/BtStringStream.h"
 
 //
 //                                 ****************************************************
@@ -48,10 +48,10 @@
 // to be high quality and several of them have become the basis for C++ Standard Library features.  So, using the Boost
 // library seems like a safe bet.
 //
-// Schema validation in JSON is also a relatively new thing.  There are several C++ validators (see
-// https://json-schema.org/implementations.html#validator-c++) but we like Valijson
-// (https://github.com/tristanpenman/valijson) in particular because it is not tied to one underlying JSON library.
-//
+// Schema validation in JSON is also a relatively new thing.  There are several C++ validators.  Originally we want with
+// Valijson (https://github.com/tristanpenman/valijson) because it is not tied to one underlying JSON library.  However,
+// it does not support the most recent JSON Schema standards, so we have switched to Blaze
+// (https://github.com/sourcemeta/blaze).
 //
 
 // Private implementation details that don't need access to class member variables
@@ -62,57 +62,18 @@ namespace {
    // why we are not using static variables to hold them.)
    std::map<JsonSchema::Id, std::unique_ptr<JsonSchema const>> jsonSchemas;
 
-   //
-   // A JSON schema can be spread across several files linked together via "$ref" statements in the JSON.  Valijson uses
-   // callbacks to fetch such referenced JSON documents when it is loading in a schema.  We cannot use a non-static
-   // member function for a callback, and the callbacks do not pass in a context (because they were originally designed
-   // to be used only for retrieving documents referenced by absolute URIs).  So, instead, use a static member function
-   // for the callback and a thread local variable to remember the last JsonSchema object used on this thread, which
-   // will be the one that asked Valijson to load in the schema.
-   //
-   // Note that the callbacks are not used when validating a JSON document against a schema.  (So, unless and until we
-   // support multiple JSON schemas, this is a more robust solution than strictly needed.  OTOH, it's very little code,
-   // so no harm in being future-proof here.)
-   //
-   thread_local JsonSchema * currentJsonSchema = nullptr;
-
    /**
-    * \brief Called from Valijson to free a resource obtained from \c fetchReferencedDocument()
-    *
-    *        This can be an anonymous namespace function because it has no work to do - see comment below.
+    * Used in JsonSchema::validate()
     */
-   void freeReferencedDocument([[maybe_unused]] boost::json::value const * document) {
-      // There isn't anything for us to do, because we hang on to all the JSON schema documents until the program
-      // terminates.
-      qDebug() << Q_FUNC_INFO;
-      return;
-   }
+   struct BlazeValidationError {
+      //! Human readable description of the error
+      QString description;
+      //! The schema rule that was violated
+      QString evaluatePath;
+      //! The location in the document that violated the schema rule
+      QString instanceLocation;
+   };
 
-   /**
-    * \brief Log a Valijson error (in English) and then turn it into something we can show on the screen (in the user's
-    *        preferred language).
-    */
-   QString validationErrorToString(valijson::ValidationResults::Error const & validationError) {
-      //
-      // The path to the node that failed validation is stored as std::vector<std::string>
-      // Typically, the sequence of elements will be something along the following lines:
-      //    <root>
-      //    [beerjson]
-      //    [recipes]
-      //    [0]
-      // Since this already lots of brackets, the cleanest thing is arguably to put them all on the same line with
-      // spaces in between, eg:
-      //    At node <root> [beerjson] [recipes] [0], error was: ...
-      //
-      BtStringStream nodePath;
-      for (auto cc : validationError.context) {
-         nodePath << " " << cc.c_str();
-      }
-
-      qWarning() <<
-         Q_FUNC_INFO << "At node" << nodePath.asString() << "error was" << validationError.description.c_str();
-      return QObject::tr("At node %1, error was %2").arg(nodePath.asString()).arg(validationError.description.c_str());
-   }
 }
 
 // This private implementation class holds all private non-virtual members of JsonSchema
@@ -124,13 +85,9 @@ public:
    impl(JsonSchema & self,
         char const * const baseDir,
         char const * const fileName) :
-      self{self},
-      baseDir{baseDir},
-      fileName{fileName},
-      schemaFileCache{},
-      schemaAdapter{*this->getReferencedDocument(std::string(fileName))},
-      jsonSchema{},
-      schemaParser{} {
+      m_self{self},
+      m_baseDir{baseDir},
+      m_fileName{fileName} {
 
       return;
    }
@@ -145,27 +102,59 @@ public:
     * JsonSchema.pimpl is set.
     */
    void parseAndPopulateSchema() {
-      // Having loaded in the base schema document to a Boost.JSON object, and wrapped it in a suitable adapter for
-      // Valijson, we now ask Valijson to parse it, which will result in any referenced documents being loaded (via
-      // JsonSchema::fetchReferencedDocument being passed in as callback function).
-      //
-      // Note that, for JsonSchema::fetchReferencedDocument to be able to call this->pimpl->getReferencedDocument(), we
-      // have to have correct values in currentJsonSchema and this->self.pimpl.  (Hence why we can't do this in
-      // JsonSchema::impl constructor, as this->self.pimpl is only set on return from that function.)
-      //
+
       try {
-         currentJsonSchema = &this->self;
-         this->schemaParser.populateSchema(this->schemaAdapter,
-                                             this->jsonSchema,
-                                             &JsonSchema::fetchReferencedDocument,
-                                             &freeReferencedDocument);
-         qDebug() << Q_FUNC_INFO << "Schema populated";
+         //
+         // Blaze can do schema validation in two different modes: FastValidation gives you a valid/not-valid result "as
+         // fast as possible", whereas Exhaustive "performs exhaustive evaluation, including annotations".  Typically,
+         // you want to do "fast" first and then only if that signals "not valid" re-run with "exhaustive" to get a
+         // detailed error message.
+         //
+         // The validation modes are baked-in to the compiled schema, so we have to compile the schema twice, once in
+         // each mode.  But this is reasonably fast and a one-off overhead.
+         //
+         auto const blazeReferencedDoc{this->getBlazeReferencedDoc(std::string(this->m_fileName))};
+
+         qDebug() << Q_FUNC_INFO << "Populating Schema for" << this->m_fileName;
+         this->m_compiledSchemaFastValidation = sourcemeta::blaze::compile(
+            blazeReferencedDoc,
+            sourcemeta::core::schema_walker,
+            //
+            // We do our own schema resolution.  The required callback signature is a function that takes on parameter,
+            // `std::string_view const identifier`, and returns
+            // `sourcemeta::core::OwnedOrReference<sourcemeta::core::JSON>`.  Using a lambda here allows us to match
+            // this but delegate the substantive work to a member function.
+            //
+            [this](std::string_view const uri){ return this->getBlazeReferencedDoc(uri); },
+            sourcemeta::blaze::default_schema_compiler,
+            // This next parameter can be either FastValidation or Exhaustive.  The former attempt to get to a boolean
+            // result as fast as possible.  The latter perform exhaustive evaluation, including annotations.
+            sourcemeta::blaze::Mode::FastValidation
+         );
+         qDebug() << Q_FUNC_INFO << "FastValidation schema populated";
+
+         this->m_compiledSchemaExhaustive = sourcemeta::blaze::compile(
+            blazeReferencedDoc,
+            sourcemeta::core::schema_walker,
+            //
+            // We do our own schema resolution.  The required callback signature is a function that takes on parameter,
+            // `std::string_view const identifier`, and returns
+            // `sourcemeta::core::OwnedOrReference<sourcemeta::core::JSON>`.  Using a lambda here allows us to match
+            // this but delegate the substantive work to a member function.
+            //
+            [this](std::string_view const uri){ return this->getBlazeReferencedDoc(uri); },
+            sourcemeta::blaze::default_schema_compiler,
+            // This next parameter can be either FastValidation or Exhaustive.  The former attempt to get to a boolean
+            // result as fast as possible.  The latter perform exhaustive evaluation, including annotations.
+            sourcemeta::blaze::Mode::Exhaustive
+         );
+         qDebug() << Q_FUNC_INFO << "Exhaustive schema populated";
 
       } catch (std::exception const & exception) {
          // Because we're only populating data from resources shipped with the program, we're not expecting exceptions,
-         // either from our own code or either of the two libraries (Boost.JSON and Valijson), so, if we do get one,
-         // it's likely a coding error.  Log something (in case we didn't already) and barf the exception up to wherever
-         // the constructor was called from.
+         // either from our own code or either of the two libraries (Boost.JSON and Blaze), so, if we do get one, it's
+         // likely a coding error.  Log something (in case we didn't already) and barf the exception up to wherever the
+         // constructor was called from.
          qCritical() << Q_FUNC_INFO << "Caught exception:" << exception.what();
          throw;
       }
@@ -185,12 +174,13 @@ public:
     *            This is reasonable, because we're only envisaging using schema documents which we control and ship with
     *            the product.  So uri is actually just a file name inside this->baseDir.)
     *
-    * \return Pointer to a Boost.JSON value which is the root of the document tree
+    * \return Pointer to a Boost.JSON value which is the root of the document tree.  NB: Caller doesn't own this.  It
+    *         is stored in \c m_schemaFileCache.
     */
    boost::json::value const * getReferencedDocument(std::string const & uri) {
       qDebug() << Q_FUNC_INFO << "Request for" << uri.c_str();
-      QString const schemaFilePath = QString("%1/%2").arg(this->baseDir, uri.c_str());
-      if (!this->schemaFileCache.contains(schemaFilePath)) {
+      QString const schemaFilePath = QString("%1/%2").arg(this->m_baseDir, uri.c_str());
+      if (!this->m_schemaFileCache.contains(schemaFilePath)) {
          //
          // We allow comments in our bundled-as-resource schema files (which come from the BeerJSON project), in case we
          // want to annotate them
@@ -200,27 +190,89 @@ public:
 
          qDebug() << Q_FUNC_INFO << "Read" << uri.c_str() << "as" << schemaFilePath;
 
-         this->schemaFileCache.insert(schemaFilePath, schemaDocument);
+         this->m_schemaFileCache.insert(schemaFilePath, schemaDocument);
       } else {
          qDebug() << Q_FUNC_INFO << schemaFilePath << "already in cache";
       }
 
       // We assert that we either already had the schema file in the cache or we just read it into the cache
-      Q_ASSERT(this->schemaFileCache.contains(schemaFilePath));
-      return this->schemaFileCache.value(schemaFilePath).get();
+      Q_ASSERT(this->m_schemaFileCache.contains(schemaFilePath));
+      return this->m_schemaFileCache.value(schemaFilePath).get();
    }
 
+   /**
+    * \brief Wraps \c getReferencedDocument to convert a schema file from Boost format to Blaze format
+    *
+    * \param fullUri The full URI of the file to fetch
+    */
+   sourcemeta::core::JSON const & getBlazeReferencedDoc(std::string_view const fullUri) {
+      //
+      // Suppose we have a JSON schema document along the following lines:
+      //
+      //    {
+      //      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      //      "$id": "https://dotbeer.org/schema/DotBeer.beer.schema",
+      //      ...
+      //      "properties": {
+      //        "timestamp": {
+      //          ...
+      //          "$ref": "Measurement.beer.schema#/$defs/Date"
+      //        },
+      //        ...
+      //      }
+      //    }
+      //
+      // Strictly speaking, the ID of the referenced Measurement.beer.schema file is derived from the $ref and the $id
+      // of the referring document: "https://dotbeer.org/schema/Measurement.beer.schema".
+      //
+      // When we were using Valijson, it would have requested simply "Measurement.beer.schema" in its callback, leaving
+      // us to do any further resolution of the URI.  This suits us because we just want to pull the file from flat
+      // local storage.  Blaze however, does the full resolution itself, so its callback to us requests
+      // "https://dotbeer.org/schema/Measurement.beer.schema".
+      //
+      // If we wanted to be super correct, we should have a mapping from the "$id" field of each document to its local
+      // file path.  However, this is overkill.  Our schemas are all sufficiently small and simple that we know all
+      // all schema files are in the same directory.  So, when we get a URI request we just chop it down to everything
+      // after the last slash, and treat that as a filename.
+      //
+      QString const fullUriAsQString{QString::fromUtf8(fullUri.data(), fullUri.size())};
+      std::string const uri{fullUri.substr(fullUri.find_last_of('/') + 1)};
+      qDebug() <<
+         Q_FUNC_INFO << "Assuming" << uri.c_str() << "for request of" << fullUriAsQString;
+      boost::json::value const * boostDoc = this->getReferencedDocument(uri);
+      if (!this->m_blazeSchemaFileCache.contains(boostDoc)) {
+         auto const blazeSchemaDocument =
+            std::make_shared<sourcemeta::core::JSON const>(
+               // See comment below in JsonSchema::validate for conversion between Boost.JSON and Blaze
+               sourcemeta::core::parse_json(boost::json::serialize(*boostDoc))
+            );
+         this->m_blazeSchemaFileCache.insert(boostDoc, blazeSchemaDocument);
+      }
+
+      sourcemeta::core::JSON const & referencedDocument{*this->m_blazeSchemaFileCache.value(boostDoc)};
+      sourcemeta::core::JSON const * referencedDocumentIdRaw{
+         referencedDocument.try_at("$id")
+      };
+      QString const referencedDocumentId{
+         referencedDocumentIdRaw && referencedDocumentIdRaw->is_string() ?
+            QString::fromStdString(referencedDocumentIdRaw->to_string()) : QString{}
+      };
+      qDebug() << Q_FUNC_INFO << "Document stored for" << uri.c_str() << "has $id" << referencedDocumentId;
+      if (referencedDocumentId != fullUriAsQString) {
+         qWarning() <<
+            Q_FUNC_INFO << "ID Mismatch!  Document found for" << fullUriAsQString << "has $id" << referencedDocumentId;
+      }
+      return referencedDocument;
+   }
 
    // Member variables
-   JsonSchema & self;
-   char const * const baseDir;
-   char const * const fileName;
-   QMap<QString, std::shared_ptr<boost::json::value const> > schemaFileCache;
-   // This wrapper around boost::json::value allows us to pass it in to Valijson.  (There are a whole bunch of other
-   // Valijson adapters so it can support other JSON libraries.)
-   valijson::adapters::BoostJsonAdapter schemaAdapter;
-   valijson::Schema jsonSchema;
-   valijson::SchemaParser schemaParser;
+   JsonSchema & m_self;
+   char const * const m_baseDir;
+   char const * const m_fileName;
+   QMap<QString, std::shared_ptr<boost::json::value const> > m_schemaFileCache = {};
+   QMap<boost::json::value const *, std::shared_ptr<sourcemeta::core::JSON const> > m_blazeSchemaFileCache = {};
+   sourcemeta::blaze::Template m_compiledSchemaFastValidation = {};
+   sourcemeta::blaze::Template m_compiledSchemaExhaustive = {};
 };
 
 
@@ -239,7 +291,7 @@ JsonSchema::JsonSchema(char const * const baseDir,
 JsonSchema::~JsonSchema() = default;
 
 JsonSchema const & JsonSchema::instance(JsonSchema::Id id) {
-   auto result = jsonSchemas.find(id);
+   auto const result = jsonSchemas.find(id);
    if (result != jsonSchemas.end()) {
       return *result->second;
    }
@@ -264,7 +316,9 @@ JsonSchema const & JsonSchema::instance(JsonSchema::Id id) {
    // Note that we cannot use std::make_unique here as we have private constructor & destructor.  However,
    // std::unique_ptr<...>(new ...) is good enough for us.  (If we were ever at the point of new throwing exceptions
    // because of lack of memory, we'd have bigger problems than exception safety.)
-   auto insertionResult = jsonSchemas.emplace(std::make_pair(id, std::unique_ptr<JsonSchema>{new JsonSchema(baseDir, fileName)}));
+   auto const insertionResult = jsonSchemas.emplace(
+      std::make_pair(id, std::unique_ptr<JsonSchema>{new JsonSchema(baseDir, fileName)})
+   );
    // We assert that the insertion succeeded (because the map did not already contain an item with the specified key)
    Q_ASSERT(insertionResult.second);
 
@@ -275,36 +329,115 @@ JsonSchema const & JsonSchema::instance(JsonSchema::Id id) {
 
 bool JsonSchema::validate(boost::json::value const & document, QTextStream & userMessage) const {
 
-   // Now pass the input document into Valijson (via a wrapper as with the base schema document) and validate it against
-   // the schema
-   valijson::adapters::BoostJsonAdapter inputAdapter{document};
-   valijson::Validator validator;
-   valijson::ValidationResults validationResults;
-   if (!validator.validate(this->pimpl->jsonSchema, inputAdapter, &validationResults)) {
-      qWarning() << Q_FUNC_INFO << validationResults.numErrors() << "validation errors in JSON file";
+   //
+   // We could, and perhaps one day should, write and adapter to recursively construct a sourcemeta::core::JSON tree
+   // from a boost::json::value one.  There are a couple of minor (but probably ignorable) wrinkles to this:
+   //    - Boost.JSON has separate types for signed and unsigned integers (boost::json::kind::int64 and
+   //      boost::json::kind::uint64) whereas Blaze only has signed integers (sourcemeta::core::JSON::Type::Integer)
+   //    - Blaze has two "floating point types" (sourcemeta::core::JSON::Type::Real and
+   //      sourcemeta::core::JSON::Type::Decimal), whereas Boost.JSON only has one (boost::json::kind::double_)
+   //
+   // However, for the moment, we "cheat" and use the fact that Blaze can parse JSON from scratch, ie we push:
+   //    Boost.JSON representation --> String --> Blaze representation
+   //
+   // It's obviously not optimal to serialise out from Boost simply to deserialise into Blaze, but it's the simplest
+   // approach.  So we'll start with this and see if we need to optimise in future.
+   //
+   sourcemeta::core::JSON blazeDocument{
+      sourcemeta::core::parse_json(boost::json::serialize(document))
+   };
+
+   //
+   // Blaze offers two options for reporting the results of validation.  The minimal approach is to call the two
+   // parameter version of sourcemeta::blaze::Evaluator::validate(), and get a boolean return value for whether the
+   // validation succeeded.  Alternatively, to get every single error, we can pass a third parameter to
+   // sourcemeta::blaze::Evaluator::validate(): a pointer to a callback function that gets invoked before and after
+   // every step of the validation.  Inside that callback, you can filter on the cases where the step ran and failed
+   // (and do nothing when it it didn't yet run or it succeeded).
+   //
+   // HOWEVER, getting every error as the validation happens can be misleading.  Some errors are expected.  Eg, if we
+   // have a field that is `oneOf` or `anyOf`, say, Mass and Volume, then we'll get an on-the-fly error message when
+   // "kg" doesn't match any of the Volume units -- even though that's ultimately OK and expected because "kg" does
+   // match one of the Mass units.
+   //
+   // What you actually need to do is use the callback to gather errors as they occur, then, if `validate()` returns
+   // false, walk backwards through the list to pull out only the errors that actually contributed towards the failure
+   // of validate().  Fortunately, Blaze supplies a class that do all this logic for us:
+   // sourcemeta::blaze::SimpleOutput.  (There is also sourcemeta::blaze::TraceOutput, which gives you a callback
+   // showing every single step of validation processing.  I'm pretty sure you'd only want this if you were trying to
+   // debug Blaze itself!)
+   //
+   // Since we mostly expect schema validation to succeed, we initially run a no-callback validation with the "fast
+   // validation" compiled schema.  Then, only if that fails, do we run with the error-recording callback against the
+   // "exhaustive" compiled schema.
+   //
+   sourcemeta::blaze::Evaluator evaluator;
+   bool const succeededFastValidation{
+      evaluator.validate(
+         this->pimpl->m_compiledSchemaFastValidation,
+         blazeDocument
+      )
+   };
+   qDebug() <<
+      Q_FUNC_INFO << "\"Fast\" schema validation via Blaze" << (succeededFastValidation ? "succeeded": "failed");
+   if (!succeededFastValidation) {
+      sourcemeta::blaze::SimpleOutput blazeSimpleOutput{blazeDocument};
+      bool const succeededExhaustive{
+         evaluator.validate(
+            this->pimpl->m_compiledSchemaExhaustive,
+            blazeDocument,
+            std::ref(blazeSimpleOutput)
+         )
+      };
+      qDebug() <<
+         Q_FUNC_INFO << "\"Exhaustive\" schema validation via Blaze" << (succeededExhaustive ? "succeeded": "failed");
+      if (succeededExhaustive) {
+         // Hopefully this never happens!
+         qCritical() << Q_FUNC_INFO << "Fast validation failed but Exhaustive validation succeeded!?!";
+      }
+
+      for (auto const & entry : blazeSimpleOutput) {
+         std::cerr << entry.message << "\n";
+         sourcemeta::core::stringify(entry.instance_location, std::cerr);
+         std::cerr << "\n";
+         sourcemeta::core::stringify(entry.evaluate_path, std::cerr);
+         std::cerr << "\n";
+      }
+
+
+      int errorNumber = 0;
       // If there is more than one error, then we'll log them all here but only show the first one to the user on
       // the screen.  (Otherwise we might risk information overload.)
-      userMessage <<
-         QObject::tr("%1 errors found in JSON file.  First error: ").arg(validationResults.numErrors()) <<
-         validationErrorToString(*validationResults.begin());
-      int errNum = 1;
-      for (auto err = validationResults.begin(); err != validationResults.end(); ++err, ++errNum) {
-         qWarning() << Q_FUNC_INFO << "Validation error #" << errNum << ":" << validationErrorToString(*err);
+      for (auto const & blazeValidationError : blazeSimpleOutput) {
+         QString const message{QString::fromStdString(blazeValidationError.message)};
+         QString const instanceLocation{
+            QString::fromStdString(sourcemeta::core::to_string(blazeValidationError.instance_location))
+         };
+         QString const evaluatePath{
+            QString::fromStdString(sourcemeta::core::to_string(blazeValidationError.evaluate_path))
+         };
+
+         //
+         // We'll put the log file error in English on the assumption that many users will want to report a bug and
+         // include log files (or extracts thereof).
+         //
+         qWarning() <<
+            Q_FUNC_INFO << "Validation error #" << ++errorNumber << ": at" << instanceLocation <<
+            ", schema condition" << evaluatePath << "is violated:" <<
+            message;
+         if (1 == errorNumber) {
+            //
+            // For displaying on the screen we can translate the text under our control, but the stuff from Blaze will
+            // still be in English -- for now at least.
+            //
+            auto const numErrors = std::distance(blazeSimpleOutput.cbegin(), blazeSimpleOutput.cend());
+            userMessage <<
+               QObject::tr(
+                  "%1 errors found in JSON file.  First error at %2: schema condition %3 is violated because \"%4\""
+               ).arg(numErrors).arg(instanceLocation).arg(evaluatePath).arg(message);
+         }
       }
-      return false;
    }
 
-   qDebug() << Q_FUNC_INFO << "Validation succeeded";
-   return true;
-}
-
-
-boost::json::value const * JsonSchema::fetchReferencedDocument(std::string const & uri) {
-   // It's a coding error if we asked Valijson to load a schema without setting currentJsonSchema
-   Q_ASSERT(currentJsonSchema);
-
-   // It's also a coding error if the pimpl member variable of currentJsonSchema has not yet been set.
-   Q_ASSERT(currentJsonSchema->pimpl);
-
-   return currentJsonSchema->pimpl->getReferencedDocument(uri);
+   return succeededFastValidation;
 }

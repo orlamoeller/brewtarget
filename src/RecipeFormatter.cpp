@@ -57,7 +57,7 @@
 #include "model/Yeast.h"
 #include "PersistentSettings.h"
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_RecipeFormatter.cpp"
 #endif
@@ -1032,8 +1032,8 @@ public:
                   .arg(Measurement::displayAmount(Measurement::Amount{note->measuredPostBoilVolume_l(),
                                                                       Measurement::Units::liters}));
          bnTable += QString("<tr><td class=\"left\">%1</td><td class=\"value\">%2</td><td class=\"right\">%3</td><td class=\"value\">%4</td></tr>")
-                  .arg(BrewLog::localisedName_measuredVolumeIntoFermentor_l())
-                  .arg(Measurement::displayAmount(Measurement::Amount{note->measuredVolumeIntoFermentor_l(),
+                  .arg(BrewLog::localisedName_measuredVolumeIntoFv_l())
+                  .arg(Measurement::displayAmount(Measurement::Amount{note->measuredVolumeIntoFv_l(),
                                                                       Measurement::Units::liters}))
                   .arg(tr("Brewhouse Eff"))
                   .arg(Measurement::displayQuantity(note->calculateBrewHouseEff_pct(), 2));

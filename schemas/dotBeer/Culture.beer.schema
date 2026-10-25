@@ -1,5 +1,5 @@
 //======================================================================================================================
-// schema/Culture.beer.schema is part of DotBeer and is copyright the following authors 2017-2026:
+// schema/Culture.beer.schema is part of dotBeer and is copyright the following authors 2017-2026:
 //   • Mark Price <shadowchao99@gmail.com>
 //   • Matt Young <mfsy@yahoo.com>
 //   • Pierre Smits <pierre.smits@somonar.com>
@@ -14,153 +14,175 @@
 //======================================================================================================================
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dotbeer.org/schema/Culture.beer.schema",
+  "$id": "https://dotbeer.org/schema/1.0.0/Culture.beer.schema",
   "type": "object",
-  "title": "Culture",
   "description": "Collects the attributes of a microbial culture such as a yeast.",
-  "allOf": [
-    {
-      "$ref": "#/$defs/CultureBase"
+  "properties": {
+    "name": {
+      "description": "Name of the culture, usually the name its producer sells it under.",
+      "type": "string"
     },
-    {
-      "properties": {
-        "temperature_range": {
-          "description": "The recommended temperature range of fermentation by the culture producer.",
-          "$ref": "Measurement.beer.schema#/$defs/RangeOfTemperature"
-        },
-        "alcohol_tolerance": {
-          "description": "The recommended limit of abv by the culture producer before attenuation stops.",
-          "$ref": "Measurement.beer.schema#/$defs/Percentage"
-        },
-        "flocculation": {
-          "description": "Floculation refers to the ability of yeast to aggregate to form large flocs which drop out of suspension.",
-          "enum": [
-            "very low",
-            "low",
-            "medium low",
-            "medium",
-            "medium high",
-            "high",
-            "very high"
-          ]
-        },
-        "attenuation_range": {
-          "$ref": "Measurement.beer.schema#/$defs/RangeOfPercentage"
-        },
-        "notes": {
-          "type": "string"
-        },
-        "best_for": {
-          "description": "Recommended styles for a particular culture.",
-          "type": "string"
-        },
-        "max_reuse": {
-          "description": "Maximum number of times to reuse a culture before a new lab source is recommended.",
-          "type": "integer"
-        },
-        "pof": {
-          "description": "A POF+ culture is capable of producing phenols, which is a common distinctive property of saison, and brett yeasts.",
-          "type": "boolean"
-        },
-        "glucoamylase": {
-          "description": "A glucoamylase positive culture is capable of producing glucoamylase, the enzyme produced through expression of the diastatic gene, which allows yeast to attenuate dextrins and starches leading to a very low FG. This is positive in some saison/brett yeasts as well as the new gulo hybrid by Omega yeast labs.",
-          "type": "boolean"
-        },
-        "inventory": {
-          "$ref": "#/$defs/CultureInventory"
-        },
-        "killer": {
-          "$ref": "#/$defs/KillerProperties"
-        }
-      }
-    }
-  ],
-  "$defs": {
-    "CultureBase": {
-      "type": "object",
-      "description": "Provides unique properties to identify individual records of a culture.",
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "culture_type": {
-          "enum": [
-            "ale",
-            "bacteria",
-            "brett",
-            "champagne",
-            "kveik",
-            "lacto",
-            "lager",
-            "malolactic",
-            "mixed-culture",
-            "other",
-            "pedio",
-            "spontaneous",
-            "wine"
-          ]
-        },
-        "form": {
-          "enum": [
-            "liquid",
-            "dry",
-            "slant",
-            "culture",
-            "dregs"
-          ]
-        },
-        "producer": {
-          "type": "string"
-        },
-        "product_id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "name",
-        "culture_type",
-        "form"
+    "local_id" : {
+      "description": "The \"local ID\" that allows other objects in this file (eg recipes) to refer to this Culture object.",
+      "$ref": "DotBeer.beer.schema#/$defs/LocalId"
+    },
+    "folder_path": {
+      "description": "The suggested slash-delimited subfolder path in which to store this Culture object.",
+      "$ref": "DotBeer.beer.schema#/$defs/FolderPath"
+    },
+    "culture_type": {
+      "description": "The kind of organism the culture is, which determines how it ferments and what flavours it contributes.",
+      "enum": [
+        "ale",
+        "bacteria",
+        "brett",
+        "champagne",
+        "kveik",
+        "lacto",
+        "lager",
+        "malolactic",
+        "mixed-culture",
+        "other",
+        "pedio",
+        "spontaneous",
+        // Added in BeerJSON 3.0, for (eg Hefeweizen) strains that BeerXML 1.0 called "Wheat"
+        "wheat",
+        "wine"
       ]
     },
-    "CultureInventory": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "liquid": {
+    "form": {
+      "description": "The physical form the culture is supplied or stored in.",
+      "enum": [
+        "liquid",
+        "dry",
+        "slant",
+        "culture",
+        "dregs"
+      ]
+    },
+    "producer": {
+      "description": "The lab or company that produced the culture.",
+      "type": "string"
+    },
+    "product_id": {
+      "description": "Producer’s product code or number for this item.",
+      "type": "string"
+    },
+    "temperature_range": {
+      "description": "The recommended temperature range of fermentation by the culture producer.",
+      "$ref": "Measurement.beer.schema#/$defs/RangeOfTemperature"
+    },
+    "alcohol_tolerance": {
+      "description": "The recommended limit of abv by the culture producer before attenuation stops.\n\nThis field is normally only meaningful for yeasts (not bacteria).",
+      "$ref": "Measurement.beer.schema#/$defs/PercentageSimple"
+    },
+    "flocculation": {
+      "description": "Flocculation refers to the ability of yeast to aggregate to form large flocs which drop out of suspension.\n\nThis field is normally only meaningful for yeasts (not bacteria).",
+      "enum": [
+        "very low",
+        "low",
+        "medium low",
+        "medium",
+        "medium high",
+        "high",
+        "very high"
+      ]
+    },
+    "attenuation_range": {
+      "description": "The range of apparent attenuation that the producer quotes for the culture.  (This can be more than 100%, eg for a diastatic yeast.)",
+      "$ref": "Measurement.beer.schema#/$defs/RangeOfPercentageNoMax"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "best_for": {
+      "description": "Recommended styles for a particular culture.",
+      "type": "string"
+    },
+    "max_reuse": {
+      "description": "Maximum number of times to reuse a culture before a new lab source is recommended.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "pof": {
+      "description": "Phenolic off-flavour positive: converts ferulic acid to 4-vinyl guaiacol (clove), typical of weizen, saison and many Belgian strains.  A POF+ culture is capable of producing phenols, which is a common distinctive property of saison, and brett yeasts.\n\nThis field is normally only meaningful for yeasts (not bacteria).",
+      "type": "boolean"
+    },
+    "glucoamylase": {
+      "description": "STA1-positive (‘diastaticus’): secretes glucoamylase so can ferment dextrins and starch.  Risk of very low FG, over-carbonation and cross-contamination.\n\nThis field is normally only meaningful for yeasts (not bacteria).",
+      "type": "boolean"
+    },
+    // BeerJSON and BeerXML have `inventory` here, but we prefer to keep inventory separate and more detailed via
+    // StockPurchaseCulture and StockUseCulture
+    // BeerJSON calls this `zymocide`, with fields `no1`, `no2`, `no28`, `klus` and `neutral`
+    "killer": {
+      "description": "Information about any \"killer yeast properties\".\n\nThis field is normally only meaningful for yeasts (not bacteria).",
+      "$ref": "#/$defs/KillerProperties"
+    }
+  },
+  "required": [
+    "name",
+    "culture_type",
+    "form"
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "CultureAmount" : {
+      "description": "The ways in which an amount of a Culture could be measured",
+      "oneOf": [
+        {
           "$ref": "Measurement.beer.schema#/$defs/Volume"
         },
-        "dry": {
+        {
           "$ref": "Measurement.beer.schema#/$defs/Mass"
         },
-        "slant": {
-          "$ref": "Measurement.beer.schema#/$defs/Volume"
-        },
-        "culture": {
-          "$ref": "Measurement.beer.schema#/$defs/Volume"
+        {
+          "$ref": "Measurement.beer.schema#/$defs/Count"
         }
-      }
+      ]
     },
     "KillerProperties": {
       "type": "object",
-      "description": "Killer yeast properties (also known as zymocide) are common among wine yeasts.  There are some ale and brett yeasts that are immune to some killer (aka zymocidic) properties, these are known as \"killer neutral\".\n\nSee https://www.milkthefunk.com/wiki/Saccharomyces#Killer_Wine_Yeast for more on \"killer\" yeasts and \"killer neutral\" yeasts.  Some folks call these killer yeast properties \"zymocide\", but AFAICT \"killer\" is still the more widely used term, at least in relation to brewing.\n\nNote that `killerNeutral` being `true` implies all the other `producingXxxToxin` properties are `false`, because \"neutral strains do not produce toxins, nor are they killed by them\".",
-      "additionalProperties": false,
+      "description": "Killer yeast properties (also known as zymocide) are common among wine yeasts.  There are some ale and brett yeasts that are immune to some killer (aka zymocidic) properties, these are known as \"killer neutral\".\n\nSee https://www.milkthefunk.com/wiki/Saccharomyces#Killer_Wine_Yeast for more on \"killer\" yeasts and \"killer neutral\" yeasts.  Some folks call these killer yeast properties \"zymocide\", but AFAICT \"killer\" is still the more widely used term, at least in relation to brewing.\n\nNote that `neutral` being `true` implies all the other `producing_xxx_toxin` properties are `false`, because \"neutral strains do not produce toxins, nor are they killed by them\".",
       "properties": {
-        "producingK1Toxin": {
+        "producing_K1_toxin": {
           "type": "boolean"
         },
-        "producingK2Toxin": {
+        "producing_K2_toxin": {
           "type": "boolean"
         },
-        "producingK28Toxin": {
+        "producing_K28_toxin": {
           "type": "boolean"
         },
-        "producingKlusToxin": {
+        "producing_Klus_toxin": {
           "type": "boolean"
         },
         "neutral": {
           "type": "boolean"
         }
-      }
+      },
+      //
+      // See https://json-schema.org/understanding-json-schema/reference/conditionals#ifthenelse for how if/then/else
+      // works in JSON Schemas.  We enforce here that `neutral` being `true` implies all the other `producingXxxToxin`
+      // properties are `false`.
+      //
+      "if":   {
+        //
+        // Per comment in Misc.beer.schema, we need `required` here to stop this being trivially true when `neutral` is
+        // not set.
+        //
+        "properties": { "neutral": { "const": true } },
+        "required": ["neutral"]
+      },
+      "then": {
+        "properties": {
+          "producing_K1_toxin"  : { "const": false },
+          "producing_K2_toxin"  : { "const": false },
+          "producing_K28_toxin" : { "const": false },
+          "producing_Klus_toxin": { "const": false }
+        }
+      },
+      "unevaluatedProperties": false
     }
   }
 }

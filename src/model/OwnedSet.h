@@ -21,8 +21,10 @@
 #include <ranges>
 
 #include <QDebug>
+#include <QMetaProperty>
 #include <QVector>
 
+#include "database/ObjectStoreWrapper.h"
 #include "utils/AutoCompare.h"
 #include "utils/BtStringConst.h"
 #include "utils/TypeTraits.h"
@@ -422,9 +424,12 @@ private:
     */
    std::shared_ptr<Item> extend(std::shared_ptr<Item> item) {
       //
-      // It's a coding error to add an item to a set if it is already in one
+      // It's a coding error to add an item to a set if it is already in a different one.
       //
-      if (item->ownerId() > 0) {
+      // (Ideally, we would also avoid adding something to a set if it's already in it, but it's harmless if this
+      // happens.)
+      //
+      if (item->ownerId() > 0 && item->ownerId() != this->m_owner.key()) {
          qWarning() <<
             Q_FUNC_INFO << "Trying to add" << Item::staticMetaObject.className() << "#" << item->key() << "to" <<
             Owner::staticMetaObject.className() << "#" << this->m_owner.key() << "when already owned by #" <<
@@ -498,7 +503,7 @@ public:
 
       // We'll treat any out of range sequence number as meaning "append to the end"
       if (seqNum < 1 || seqNum > existingItems.size() + 1) {
-         seqNum = existingItems.size() + 1;
+         seqNum = static_cast<int>(existingItems.size() + 1);
       }
 
       // Note per https://en.cppreference.com/w/cpp/ranges/drop_view that dropping more than the number of elements is
@@ -542,7 +547,7 @@ public:
 
       // As per add(), if we're not yet stored in the database, then we also need to update our list of Items.
       if (this->m_owner.key() < 0) {
-         if (int const indexOfItem = this->m_itemIds.indexOf(item->key());
+         if (int const indexOfItem = static_cast<int>(this->m_itemIds.indexOf(item->key()));
              indexOfItem < 0 ) {
             // This shouldn't happen, but it doesn't inherently break anything, so just log a warning and carry on
             qWarning() <<

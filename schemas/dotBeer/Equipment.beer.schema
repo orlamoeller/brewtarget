@@ -1,5 +1,5 @@
 //======================================================================================================================
-// schema/Equipment.beer.schema is part of DotBeer and is copyright the following authors 2018-2026:
+// schema/Equipment.beer.schema is part of dotBeer and is copyright the following authors 2018-2026:
 //   • Mark Price <shadowchao99@gmail.com>
 //   • Matt Young <mfsy@yahoo.com>
 //   • Yuriy Krutilin <y.krutilin@gmail.com>
@@ -12,53 +12,97 @@
 //======================================================================================================================
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dotbeer.org/schema/Equipment.beer.schema",
+  "$id": "https://dotbeer.org/schema/1.0.0/Equipment.beer.schema",
   "type": "object",
   "description": "Groups together all the vessels in a set of brewing equipment.  Note that, in some set-ups, one vessel serves multiple purposes -- eg mash tun and kettle may be the same physical vessel -- but there are nonetheless individual entries here for each \"purpose\".",
-  "additionalProperties": false,
   "properties": {
+    //
+    // NB: BeerJSON has a list of `equipment_items`, each with a `form` saying what it is (eg "Mash Tun"), whereas we have
+    // a field for each vessel.  BeerJSON's `maximum_volume` and `specific_heat` are our `max_volume` and
+    // `specific_heat_capacity`, and the free text `type` of a BeerJSON equipment item is our `vessel_type`.
+    //
+    // We put the `"unevaluatedProperties": false` property on the individual fields rather than their types because,
+    // per the $defs section below, we need to be able to combine the types.  Eg, `HotSideVessel` is `Vessel` with some
+    // extra fields (which precludes `"unevaluatedProperties": false` on Vessel), but we have fields of type `Vessel`,
+    // where we don't want unexpected additional properties.
+    //
     "name": {
       "type": "string"
     },
+    "local_id" : {
+      "description": "The \"local ID\" that allows other objects in this file (eg recipes) to refer to this set of equipment.",
+      "$ref": "DotBeer.beer.schema#/$defs/LocalId"
+    },
+    "folder_path": {
+      "description": "The suggested slash-delimited subfolder path in which to store this Equipment object.",
+      "$ref": "DotBeer.beer.schema#/$defs/FolderPath"
+    },
     "hlt": {
       "description": "Hot Liquor Tank",
-      "$ref": "#/$defs/HotSideVessel"
+      "$ref": "#/$defs/HotSideVessel",
+      "unevaluatedProperties": false
     },
     "mash_tun": {
       "description": "Mash Tun",
-      "$ref": "#/$defs/MashTun"
+      "$ref": "#/$defs/MashTun",
+      "unevaluatedProperties": false
     },
     "lauter_tun": {
       "description": "Lauter Tun",
-      "$ref": "#/$defs/HotSideVessel"
+      "$ref": "#/$defs/HotSideVessel",
+      "unevaluatedProperties": false
     },
     "kettle": {
       "description": "Boil Kettle",
-      "$ref": "#/$defs/BoilKettle"
+      "$ref": "#/$defs/BoilKettle",
+      "unevaluatedProperties": false
     },
-    "fermenter": {
+    //
+    // BeerJSON uses "fermenter" here.
+    //
+    // Some authors (notably Chris White & Jamil Zainasheff in "Yeast - The Practical Guide to Beer Fermentation")
+    // distinguish between "fermentor" and "fermenter", with the former meaning "the vessel where fermentation happens"
+    // and the latter referring to "the organism (such as yeast) that performs the fermentation".  (The logic is that
+    // the suffix -or often denotes an instrument or apparatus, while -er can denote an agent that performs an action.)
+    //
+    // However, in reality, "fermenter" is a widely used term for the fermenting vessel (and it is relatively rare to
+    // see it used to refer to yeast or other cultures).  For example, in The Oxford Companion to Beer, "fermentation
+    // vessels also known as fermenters or FVs (and occasionally spelled fermentors), are the tanks, barrels, or other
+    // vessels where wort is held as it ferments into beer" (see https://www.beerandbrewing.com/dictionary/YCCmYUmOuv).
+    //
+    // On the whole, we prefer to sidestep the spelling debate by using "fermentation vessel" and "FV".
+    //
+    "fermentation_vessel": {
       "description": "Fermentation Vessel",
-      "$ref": "#/$defs/Vessel"
+      "$ref": "#/$defs/Vessel",
+      "unevaluatedProperties": false
     },
     "aging_vessel": {
       "description": "Aging Vessel",
-      "$ref": "#/$defs/Vessel"
+      "$ref": "#/$defs/Vessel",
+      "unevaluatedProperties": false
     },
     "packaging_vessel": {
       "description": "Packaging Vessel",
-      "$ref": "#/$defs/Vessel"
+      "$ref": "#/$defs/Vessel",
+      "unevaluatedProperties": false
     }
   },
   "required": [
     "name",
     "kettle"
   ],
+  "unevaluatedProperties": false,
   "$defs": {
+    //
+    // See comment above for why we don't put the `"unevaluatedProperties": false` property on these local types
+    //
     "Vessel": {
       "type": "object",
       "description": "An individual vessel (eg mash tun, boil kettle) that forms part of brewing equipment.",
       "properties": {
         "vessel_type": {
+          "description": "Free text type of the vessel, such as its material or model.",
           "type": "string"
         },
         "max_volume": {
@@ -66,6 +110,7 @@
           "$ref": "Measurement.beer.schema#/$defs/Volume"
         },
         "loss": {
+          "description": "Volume left behind (dead space, trub, chiller) when transferring out of this vessel",
           "$ref": "Measurement.beer.schema#/$defs/Volume"
         },
         "notes": {
@@ -73,7 +118,7 @@
         }
       },
       "required": [
-        "maximum_volume",
+        "max_volume",
         "loss"
       ]
     },
@@ -108,8 +153,8 @@
         {
           "properties": {
             "grain_absorption_rate": {
-              "description": "The apparent volume absorbed by grain, typical values are 0.125 qt/lb (1.04 L/kg) for a mash tun, 0.08 gal/lb (0.66 L/kg) for BIAB.",
-              "$ref": "Measurement.beer.schema#/$defs/SpecificVolume"
+              "description": "The apparent volume absorbed by grain, typical values are 0.125 gal/lb (1.04 l/kg) for a mash tun, 0.08 gal/lb (0.66 l/kg) for BIAB.",
+              "$ref": "Measurement.beer.schema#/$defs/VolumePerMass"
             }
           }
         }
@@ -124,6 +169,15 @@
         },
         {
           "properties": {
+            //
+            // If we were being strictly consistent with our other measurements, we would have a type called, say,
+            // VolumeRate representing volume-per-time, and use it to have "boil_rate" and "drain_rate" instead of
+            // "boil_rate_per_hour" and "drain_rate_per_minute".  However, whilst different brewers might want to
+            // measure the volume side differently (eg liters or pints), it seems unlikely, in practice, that people
+            // would want to measure boil rate per minute or drain rate per day.  So, in line with BeerJSON, we judge
+            // the additional cost of a new type not merited in this particular case, especially as there are no other
+            // places where we would use volume-per-time.
+            //
             "boil_rate_per_hour": {
               "description": "The volume boiled off during 1 hour, measured before and after at room temperature.",
               "$ref": "Measurement.beer.schema#/$defs/Volume"
@@ -132,12 +186,12 @@
               "description": "The volume that leaves the kettle, especially important for non-immersion chillers that cool the wort as it leaves the kettle.",
               "$ref": "Measurement.beer.schema#/$defs/Volume"
             },
-            "internalDiameter": {
-              "description": "With openingDiameter, allows calculation of IBU by Paul-John Hosom's mIBU formula",
+            "internal_diameter": {
+              "description": "With opening_diameter, allows calculation of IBU by John-Paul Hosom's mIBU formula",
               "$ref": "Measurement.beer.schema#/$defs/Length"
             },
-            "openingDiameter": {
-              "description": "With internalDiameter, allows calculation of IBU by Paul-John Hosom's mIBU formula",
+            "opening_diameter": {
+              "description": "With internal_diameter, allows calculation of IBU by John-Paul Hosom's mIBU formula",
               "$ref": "Measurement.beer.schema#/$defs/Length"
             }
           }

@@ -64,8 +64,10 @@ namespace {
 
             // If we wanted the application to keep running here, we could just drop through to `return false`.  But we
             // don't know whether continuing is a good idea.  So the safest thing is to exit now that we've logged some
-            // diagnostics.
+            // diagnostics.  Note that the call to exit() does nothing if the event loop is not running.  So, as a
+            // fallback we rethrow the exception, which should terminate the application.
             this->exit();
+            throw;
          }
          return false;
       }
@@ -215,7 +217,7 @@ int main(int argc, char **argv) {
 
       QString errorMessage;
       if (QTextStream errorMessageAsStream{&errorMessage};
-          !BeerXML::getInstance().importFromXML(fileName, errorMessageAsStream)) {
+          !BeerXML::getInstance().importFromXML("/", fileName, errorMessageAsStream)) {
          qCritical() << "Unable to import" << fileName << "Error: " << errorMessage;
          return 1;
       }

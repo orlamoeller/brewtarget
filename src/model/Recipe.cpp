@@ -52,6 +52,7 @@
 #include "model/Fermentable.h"
 #include "model/Fermentation.h"
 #include "model/FermentationStep.h"
+#include "model/Folder.h"
 #include "model/Hop.h"
 #include "model/Instruction.h"
 #include "model/Mash.h"
@@ -68,7 +69,7 @@
 #include "PersistentSettings.h"
 #include "utils/AutoCompare.h"
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_Recipe.cpp"
 #endif
@@ -177,16 +178,6 @@ namespace {
          "PreInstruction" << preInstruction.name << "@" << preInstruction.stage << ":" << preInstruction.step << ":" <<
          preInstruction.interval_mins;
       return stream;
-   }
-
-
-   bool isFermentableSugar(Fermentable const * fermy) {
-      // TODO: This probably doesn't work in languages other than English!
-      if (fermy->type() == Fermentable::Type::Sugar && fermy->name() == "Milk Sugar (Lactose)") {
-         return false;
-      }
-
-      return true;
    }
 }
 
@@ -441,7 +432,7 @@ public:
                break;
             case RecipeAddition::Stage::Fermentation:
                if constexpr (std::same_as<AdditionType, RecipeAdditionHop>) {
-                  str = tr("Put %1 %2 into fermenter" "%3.");
+                  str = tr("Put %1 %2 into fermentor" "%3.");
                } else {
                   if (step == 1) {
                      str = tr("Put %1 %2 into primary" "%3.");
@@ -683,74 +674,53 @@ public:
    }
 
    void instructionsForMashFermentables(QVector<PreInstruction> & preInstructions) const {
-      /*** Add grains ***/
-      QString str = tr("Add ");
-      QList<QString> reagents = this->m_self.getReagents(this->m_self.fermentableAdditions());
-
-      for (int ii = 0; ii < reagents.size(); ++ii) {
-         str += reagents.at(ii);
+      auto const namesAndAmounts{this->m_self.getFermentableAdditionNameAndAmounts()};
+      if (namesAndAmounts.empty()) {
+         qWarning() << Q_FUNC_INFO << "No fermentables in Mash for" << this->m_self;
+         return;
       }
-
-      str += tr(" to the mash tun.");
-
       preInstructions.push_back(
          PreInstruction(RecipeAddition::Stage::Mash,
                         std::nullopt,
                         0.0,
                         tr("Add grains"),
-                        str)
+                        tr("Add %1 to the mash tun.").arg(namesAndAmounts.join(", ")))
       );
-
       return;
    }
 
    void instructionsForMashWater(QVector<PreInstruction> & preInstructions) const {
-
       if (!this->m_self.mash()) {
          return;
       }
-
-      QString str = tr("Bring ");
-      QList<QString> const reagents = this->m_self.getReagents(this->m_self.mash()->mashSteps());
-
-      for (int ii = 0; ii < reagents.size(); ++ii) {
-         str += reagents.at(ii);
+      QList<QString> const heatingSteps = this->m_self.getMashHeatingSteps();
+      if (heatingSteps.empty()) {
+         qWarning() << Q_FUNC_INFO << "No heating steps in Mash for" << this->m_self;
+         return;
       }
-
-      str += tr("for upcoming infusions.");
-
       preInstructions.push_back(
          PreInstruction(RecipeAddition::Stage::Mash,
                         std::nullopt,
                         0.0,
                         tr("Heat water"),
-                        str)
+                        tr("Bring %1 for upcoming infusions.").arg(heatingSteps.join(", ")))
       );
-
       return;
    }
 
    void instructionsForFirstWortHops(QVector<PreInstruction> & preInstructions) const {
-      QList<QString> const reagents = this->m_self.getReagents(this->m_self.hopAdditions(), true);
-      if (reagents.size() == 0) {
+      auto const namesAndAmounts{this->m_self.getHopAdditionNameAndAmounts(true)};
+      if (namesAndAmounts.empty()) {
          return;
       }
-
-      QString str = tr("Do first wort hopping with ");
-
-      for (int ii = 0; ii < reagents.size(); ++ii) {
-         str += reagents.at(ii);
-      }
-      str += ".";
 
       preInstructions.push_back(
          PreInstruction(RecipeAddition::Stage::Boil,
                         1, // First wort hops are added at the start of the boil
                         0.0,
                         tr("First wort hopping"),
-                        str)
+                        tr("Do first wort hopping with %1.").arg(namesAndAmounts.join(", ")))
       );
-
       return;
    }
 
@@ -1074,6 +1044,9 @@ public:
 
       // Total sugars after accounting for efficiency and mash losses. Implicitly includes non-fermentable sugars
       sugar_kg = sugar_kg * this->m_self.efficiency_pct() / 100.0 + sugar_kg_ignoreEfficiency;
+      // Unfermentable extract from mashed ingredients is subject to efficiency in the same way as the rest of their
+      // extract.  (It will usually be zero, as Fermentable::fermentableFraction_pct is not normally set for malts.)
+      nonFermentableSugars_kg += sugars.sugarsFromStarch_nonFermentable_kg * this->m_self.efficiency_pct() / 100.0;
       double plato = Algorithms::platoFromSugarMassAndWortVolume(sugar_kg, this->m_finalVolumeNoLosses_l);
 
       double const calculatedOg = Algorithms::PlatoToSG_20C20C(plato);    // og from all sugars
@@ -1189,7 +1162,7 @@ public:
    void recalcBoilGrav() {
       auto const sugars = this->m_self.sugarTotals();
 
-      // Since the efficiency refers to how much sugar we get into the fermenter,
+      // Since the efficiency refers to how much sugar we get into the fermentor,
       // we need to adjust for that here.
       double const sugar_kg{
          this->m_self.efficiency_pct() / 100.0 *
@@ -1267,8 +1240,9 @@ public:
    void recalcCalories() {
       //
       // The Journal of the Institute of Brewing (JIB) is published by the Institute of Brewing and Distilling.
-      // On pages 320-321 of Volume 88 of the JIB, dated "September - October 1982", there is an article on "Calculation of
-      // Calorific Value of Beer" submitted by P A Martin on behalf of the IOB (Institute of Brewing) Analysis Committee.
+      // On pages 320-321 of Volume 88 of the JIB, dated "September - October 1982", there is an article on "Calculation
+      // of Calorific Value of Beer" submitted by P A Martin on behalf of the IOB (Institute of Brewing) Analysis
+      // Committee.
       //
       // The article discusses four methods for calculating the calories in beer, and, in summary, recommends calculating
       // Calories/100ml as follows:
@@ -1281,9 +1255,9 @@ public:
       //    2.2 In a collaborative trial the precision of the method was ±2.02 Calories for highly attenuated beers and
       //        ±3.06 Calories for normally fermented products.
       //
-      // We should come back to this at some point...
+      // TODO: We should come back to this at some point...
       //
-      // the formula in here are taken from http://hbd.org/ensmingr/
+      // The formula in here are taken from http://hbd.org/ensmingr/
       //
 
       // Need to translate OG and FG into plato
@@ -1300,11 +1274,11 @@ public:
       // The 10.0 puts it in terms of liters.
       double calculatedCaloriesPerLiter = ((6.9 * abw) + 4.0 * (realExtract - 0.1)) * this->m_self.m_fg * 10.0;
 
-      //! If there are no fermentables in the recipe, if there is no mash, etc.,
+      // If there are no fermentables in the recipe, if there is no mash, etc.,
       //  then the calories/12 oz ends up negative. Since negative doesn't make
       //  sense, set it to 0
-      if (calculatedCaloriesPerLiter < 0) {
-         calculatedCaloriesPerLiter = 0;
+      if (calculatedCaloriesPerLiter < 0.0) {
+         calculatedCaloriesPerLiter = 0.0;
       }
 
       if (!qFuzzyCompare(calculatedCaloriesPerLiter, this->m_caloriesPerLiter)) {
@@ -1313,7 +1287,7 @@ public:
             "Calculated calories/liter: " << calculatedCaloriesPerLiter << ", stored: " << this->m_caloriesPerLiter;
          this->m_caloriesPerLiter = calculatedCaloriesPerLiter;
          if (!this->m_self.m_uninitializedCalcs) {
-            emit this->m_self.changed(this->m_self.metaProperty(*PropertyNames::Recipe::caloriesPerLiter),
+            emit this->m_self.changed(this->m_self.metaProperty(*PropertyNames::Recipe::energyContent_kcalL),
                                       this->m_caloriesPerLiter);
          }
       }
@@ -1444,7 +1418,7 @@ QString Recipe::localisedName_age_days               () { return tr("Age"       
 QString Recipe::localisedName_ageTemp_c              () { return tr("Age Temp"               ); }
 QString Recipe::localisedName_ancestorId             () { return tr("Ancestor ID"            ); }
 QString Recipe::localisedName_apparentAttenuation_pct() { return tr("Apparent Attenuation"   ); }
-QString Recipe::localisedName_asstBrewer             () { return tr("Assistant Brewer"       ); }
+QString Recipe::localisedName_assistantBrewer             () { return tr("Assistant Brewer"       ); }
 QString Recipe::localisedName_batchSize_l            () { return tr("BatchSize"              ); }
 QString Recipe::localisedName_beerAcidity_pH         () { return tr("Beer Acidity"           ); }
 QString Recipe::localisedName_boil                   () { return tr("Boil"                   ); }
@@ -1455,7 +1429,7 @@ QString Recipe::localisedName_brewer                 () { return tr("Brewer"    
 QString Recipe::localisedName_brewLogs               () { return tr("Brew Logs"              ); }
 QString Recipe::localisedName_calcsEnabled           () { return tr("Calculations Enabled"   ); }
 QString Recipe::localisedName_caloriesPer33cl        () { return tr("Calories Per 33cl"      ); }
-QString Recipe::localisedName_caloriesPerLiter       () { return tr("Calories Per Liter"     ); }
+QString Recipe::localisedName_energyContent_kcalL       () { return tr("Calories Per Liter"     ); }
 QString Recipe::localisedName_caloriesPerUs12oz      () { return tr("Calories Per US 12oz"   ); }
 QString Recipe::localisedName_caloriesPerUsPint      () { return tr("Calories Per US Pint"   ); }
 QString Recipe::localisedName_carbonationTemp_c      () { return tr("Carbonation Temperature"); }
@@ -1582,42 +1556,42 @@ TypeLookup const Recipe::typeLookup {
       //    - The canonical unit for Measurement::PhysicalQuantity::Time is Measurement::Units::minutes, so we'd have to
       //      either store as minutes or do some special-case handling to say we're not storing in canonical units.
       //      Both would be ugly -- but doable, as we have done elsewhere
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, type             , m_type              ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, brewer           , m_brewer            ,           NonPhysicalQuantity::String        ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, asstBrewer       , m_asstBrewer        ,           NonPhysicalQuantity::String        ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, batchSize_l      , m_batchSize_l       , Measurement::PhysicalQuantity::Volume        ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, efficiency_pct   , m_efficiency_pct    ,           NonPhysicalQuantity::Percentage    ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, age_days         , m_age_days          ,           NonPhysicalQuantity::Dimensionless ), // See comment above for why Dimensionless, not Time
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, ageTemp_c        , m_ageTemp_c         , Measurement::PhysicalQuantity::Temperature   ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, date             , m_date              ,           NonPhysicalQuantity::Date          ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, carbonation_vols , m_carbonation_vols  , Measurement::PhysicalQuantity::Carbonation   ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, forcedCarbonation, m_forcedCarbonation , BOOL_INFO(tr("No"), tr("Yes"))               ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, primingSugarName , m_primingSugarName  ,           NonPhysicalQuantity::String        ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, carbonationTemp_c, m_carbonationTemp_c , Measurement::PhysicalQuantity::Temperature   ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, primingSugarEquiv, m_primingSugarEquiv ,           NonPhysicalQuantity::Dimensionless ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, kegPrimingFactor , m_kegPrimingFactor  ,           NonPhysicalQuantity::Dimensionless ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, notes            , m_notes             ,           NonPhysicalQuantity::String        ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, tasteNotes       , m_tasteNotes        ,           NonPhysicalQuantity::String        ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, tasteRating      , m_tasteRating       ,           NonPhysicalQuantity::Dimensionless ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, styleId          , m_styleId           ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, mashId           , m_mashId            ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, boilId           , m_boilId            ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, fermentationId   , m_fermentationId    ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, equipmentId      , m_equipmentId       ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, waterBaseId      , m_waterBaseId       ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, waterTargetId    , m_waterTargetId     ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, og               , m_og                , Measurement::PhysicalQuantity::Gravity       ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, fg               , m_fg                , Measurement::PhysicalQuantity::Gravity       ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, locked           , m_locked            ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, calcsEnabled     , m_calcsEnabled      ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, ancestorId       , m_ancestor_id       ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, numAncestors     , numAncestors       ,        NonPhysicalQuantity::CardinalNumber),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, ABV_pct          , ABV_pct         ,           NonPhysicalQuantity::Percentage   ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, boilGrav         , boilGrav        , Measurement::PhysicalQuantity::Gravity      ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, boilVolume_l     , boilVolume_l    , Measurement::PhysicalQuantity::Volume       ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerLiter , caloriesPerLiter,           NonPhysicalQuantity::Dimensionless), // Calculated, not in DB .:TBD:. One day this should perhaps become Measurement::PhysicalQuantity::Energy
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerUs12oz, caloriesPerUs12oz,         NonPhysicalQuantity::Dimensionless),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerUsPint, caloriesPerUsPint,         NonPhysicalQuantity::Dimensionless),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, type               , m_type              ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, brewer             , m_brewer            ,           NonPhysicalQuantity::String        ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, assistantBrewer    , m_assistantBrewer        ,           NonPhysicalQuantity::String        ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, batchSize_l        , m_batchSize_l       , Measurement::PhysicalQuantity::Volume        ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, efficiency_pct     , m_efficiency_pct    ,           NonPhysicalQuantity::Percentage    ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, age_days           , m_age_days          ,           NonPhysicalQuantity::Dimensionless ), // See comment above for why Dimensionless, not Time
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, ageTemp_c          , m_ageTemp_c         , Measurement::PhysicalQuantity::Temperature   ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, date               , m_date              ,           NonPhysicalQuantity::Date          ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, carbonation_vols   , m_carbonation_vols  , Measurement::PhysicalQuantity::Carbonation   ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, forcedCarbonation  , m_forcedCarbonation , BOOL_INFO(tr("No"), tr("Yes"))               ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, primingSugarName   , m_primingSugarName  ,           NonPhysicalQuantity::String        ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, carbonationTemp_c  , m_carbonationTemp_c , Measurement::PhysicalQuantity::Temperature   ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, primingSugarEquiv  , m_primingSugarEquiv ,           NonPhysicalQuantity::Dimensionless ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, kegPrimingFactor   , m_kegPrimingFactor  ,           NonPhysicalQuantity::Dimensionless ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, notes              , m_notes             ,           NonPhysicalQuantity::String        ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, tasteNotes         , m_tasteNotes        ,           NonPhysicalQuantity::String        ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, tasteRating        , m_tasteRating       ,           NonPhysicalQuantity::Dimensionless ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, styleId            , m_styleId           ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, mashId             , m_mashId            ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, boilId             , m_boilId            ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, fermentationId     , m_fermentationId    ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, equipmentId        , m_equipmentId       ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, waterBaseId        , m_waterBaseId       ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, waterTargetId      , m_waterTargetId     ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, og                 , m_og                , Measurement::PhysicalQuantity::Gravity       ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, fg                 , m_fg                , Measurement::PhysicalQuantity::Gravity       ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, locked             , m_locked            ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, calcsEnabled       , m_calcsEnabled      ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, ancestorId         , m_ancestor_id       ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, numAncestors       , numAncestors        ,        NonPhysicalQuantity::CardinalNumber),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, ABV_pct            , ABV_pct             ,           NonPhysicalQuantity::Percentage   ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, boilGrav           , boilGrav            , Measurement::PhysicalQuantity::Gravity      ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, boilVolume_l       , boilVolume_l        , Measurement::PhysicalQuantity::Volume       ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, energyContent_kcalL, energyContent_kcalL , Measurement::PhysicalQuantity::EnergyPerVolume), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerUs12oz, caloriesPerUs12oz,         NonPhysicalQuantity::Dimensionless), // TODO: Remove this
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerUsPint, caloriesPerUsPint,         NonPhysicalQuantity::Dimensionless), // TODO: Remove this
       PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, color_srm        , color_srm         , Measurement::PhysicalQuantity::Color     ), // Calculated, not in DB
       PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, finalVolume_l    , finalVolume_l     , Measurement::PhysicalQuantity::Volume    ), // Calculated, not in DB
       PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, grainsInMash_kg  , grainsInMash_kg   , Measurement::PhysicalQuantity::Mass      ), // Calculated, not in DB
@@ -1656,7 +1630,7 @@ Recipe::Recipe(QString name) :
    NamedEntity              {name},
    FolderPropertyBase<Recipe>       {},
    pimpl                    {std::make_unique<impl>(*this)},
-   m_asstBrewer             {QString{"%1: free beer software"}.arg(CONFIG_APPLICATION_NAME_UC)},
+   m_assistantBrewer             {QString{"%1: free beer software"}.arg(CONFIG_APPLICATION_NAME_UC)},
    m_date                   {QDate::currentDate()}, // Date is allowed to be blank, but we default it to today
    m_fermentableAdditions   {*this               },
    m_hopAdditions           {*this               },
@@ -1675,7 +1649,7 @@ Recipe::Recipe(NamedParameterBundle const & namedParameterBundle) :
    pimpl                {std::make_unique<impl>(*this, namedParameterBundle)},
    SET_REGULAR_FROM_NPB (m_type                   , namedParameterBundle, PropertyNames::Recipe::type                   ),
    SET_REGULAR_FROM_NPB (m_brewer                 , namedParameterBundle, PropertyNames::Recipe::brewer                 , ""),
-   SET_REGULAR_FROM_NPB (m_asstBrewer             , namedParameterBundle, PropertyNames::Recipe::asstBrewer             , ""),
+   SET_REGULAR_FROM_NPB (m_assistantBrewer             , namedParameterBundle, PropertyNames::Recipe::assistantBrewer             , ""),
    SET_REGULAR_FROM_NPB (m_batchSize_l            , namedParameterBundle, PropertyNames::Recipe::batchSize_l            ),
    SET_REGULAR_FROM_NPB (m_efficiency_pct         , namedParameterBundle, PropertyNames::Recipe::efficiency_pct         ),
    SET_REGULAR_FROM_NPB (m_age_days               , namedParameterBundle, PropertyNames::Recipe::age_days               , std::nullopt),
@@ -1738,7 +1712,7 @@ Recipe::Recipe(Recipe const & other) :
    pimpl{std::make_unique<impl>(*this, other)},
    m_type                   {other.m_type              },
    m_brewer                 {other.m_brewer            },
-   m_asstBrewer             {other.m_asstBrewer        },
+   m_assistantBrewer             {other.m_assistantBrewer        },
    m_batchSize_l            {other.m_batchSize_l       },
    m_efficiency_pct         {other.m_efficiency_pct    },
    m_age_days               {other.m_age_days          },
@@ -2301,8 +2275,8 @@ void Recipe::setEfficiency_pct(double val) {
    recalcAll();
 }
 
-void Recipe::setAsstBrewer(const QString & val) {
-   SET_AND_NOTIFY(PropertyNames::Recipe::asstBrewer, this->m_asstBrewer, val);
+void Recipe::setAssistantBrewer(const QString & val) {
+   SET_AND_NOTIFY(PropertyNames::Recipe::assistantBrewer, this->m_assistantBrewer, val);
    return;
 }
 
@@ -2561,15 +2535,15 @@ double        Recipe::IBU              () const { return this->pimpl->getCalcula
 IbuMethods::IbuFormula  Recipe::ibuFormula() const { return this->pimpl->getCalculated(this->pimpl->m_ibuFormula   ); }
 QList<double> Recipe::IBUs             () const { return this->pimpl->getCalculated(this->pimpl->m_ibus            ); }
 double        Recipe::boilGrav         () const { return this->pimpl->getCalculated(this->pimpl->m_boilGrav        ); }
-double        Recipe::caloriesPerLiter () const { return this->pimpl->getCalculated(this->pimpl->m_caloriesPerLiter); }
-double        Recipe::caloriesPer33cl  () const { return this->caloriesPerLiter() * 0.33          ; }
+double        Recipe::energyContent_kcalL() const { return this->pimpl->getCalculated(this->pimpl->m_caloriesPerLiter); }
+double        Recipe::caloriesPer33cl  () const { return this->energyContent_kcalL() * 0.33          ; }
 double        Recipe::caloriesPerUs12oz() const {
    static double const us12ozInLiters = Measurement::Units::us_fluidOunces.toCanonical(12.0).quantity;
-   return this->caloriesPerLiter() * us12ozInLiters;
+   return this->energyContent_kcalL() * us12ozInLiters;
 }
 double        Recipe::caloriesPerUsPint() const {
    static double const usPintInLiters = Measurement::Units::us_fluidOunces.toCanonical(16.0).quantity;
-   return this->caloriesPerLiter() * usPintInLiters;
+   return this->energyContent_kcalL() * usPintInLiters;
 }
 double        Recipe::wortFromMash_l  () const { return this->pimpl->getCalculated(this->pimpl->m_wortFromMash_l  );}
 double        Recipe::boilVolume_l    () const { return this->pimpl->getCalculated(this->pimpl->m_boilVolume_l    );}
@@ -2650,7 +2624,7 @@ int Recipe::numAncestors () const { return this->ancestors().size(); }
 //============================== Other Getters ===================================
 Recipe::Type           Recipe::type             () const { return m_type             ; }
 QString                Recipe::brewer           () const { return m_brewer           ; }
-QString                Recipe::asstBrewer       () const { return m_asstBrewer       ; }
+QString                Recipe::assistantBrewer       () const { return m_assistantBrewer       ; }
 QString                Recipe::notes            () const { return m_notes            ; }
 QString                Recipe::tasteNotes       () const { return m_tasteNotes       ; }
 QString                Recipe::primingSugarName () const { return m_primingSugarName ; }
@@ -2752,27 +2726,37 @@ Recipe::Sugars Recipe::sugarTotals() const {
       qDebug() <<
          Q_FUNC_INFO << "Rec" << this->key() << "(" << this->name() << ") "
          "Ferm Add" << fermentable->key() << "(" << fermentable->name() << ") equivSucrose_kg" <<
-         fermentableAddition->equivSucrose_kg() << ", isSugar?" << fermentable->isSugar() << ", isExtract?" <<
-         fermentable->isExtract() << ", addAfterBoil?" <<
-         fermentableAddition->addAfterBoil() << ", isFermentableSugar?" << isFermentableSugar(fermentable);
+         fermentableAddition->equivSucrose_kg() << ", isExistingSugar?" << fermentable->isExistingSugar() <<
+         ", addAfterBoil?" << fermentableAddition->addAfterBoil() << ", fermentableFraction_pct" <<
+         fermentable->fermentableFraction_pct();
 
-      // If we have some sort of non-grain, we have to ignore efficiency.
-      if (fermentable->isSugar() || fermentable->isExtract()) {
+      //
+      // The part of this ingredient's extract that yeast can't ferment.  It counts towards OG and FG, but is not
+      // attenuated.  Unset means 100% fermentable.
+      //
+      double const unfermentableShare = 1.0 - fermentable->fermentableFraction_pct().value_or(100.0) / 100.0;
+
+      //
+      // Sugar that is already present (sugars, extracts, honey, fruit, juice) is not subject to mash efficiency.  Only
+      // extract that has to be converted from starch in the mash is.  (Previously only Sugar, Extract and Dry_Extract
+      // were treated as existing sugar, so eg fruit or honey additions were wrongly scaled by mash efficiency.)
+      //
+      if (fermentable->isExistingSugar()) {
          ret.existingSugars_all_kg += fermentableAddition->equivSucrose_kg();
 
          if (fermentableAddition->addAfterBoil()) {
             ret.existingSugars_lateAddition_kg += fermentableAddition->equivSucrose_kg();
          }
 
-         if (!isFermentableSugar(fermentable)) {
-            ret.existingSugars_nonFermentable_kg += fermentableAddition->equivSucrose_kg();
-         }
+         ret.existingSugars_nonFermentable_kg += fermentableAddition->equivSucrose_kg() * unfermentableShare;
       } else {
          ret.sugarsFromStarch_all_kg += fermentableAddition->equivSucrose_kg();
 
          if (fermentableAddition->addAfterBoil()) {
             ret.sugarsFromStarch_lateAddition_kg += fermentableAddition->equivSucrose_kg();
          }
+
+         ret.sugarsFromStarch_nonFermentable_kg += fermentableAddition->equivSucrose_kg() * unfermentableShare;
       }
    }
 
@@ -2903,62 +2887,56 @@ double Recipe::ibuFromHopAddition(RecipeAdditionHop const & hopAddition) const {
    return ibus;
 }
 
-QList<QString> Recipe::getReagents(QList<std::shared_ptr<RecipeAdditionFermentable>> fermentableAdditions) {
-   QList<QString> reagents;
-   bool firstTime = true;
-   for (auto const & fermentableAddition : fermentableAdditions) {
+QList<QString> Recipe::getFermentableAdditionNameAndAmounts() const {
+   QList<QString> result;
+   for (auto const & fermentableAddition : this->fermentableAdditions()) {
       if (fermentableAddition->stage() == RecipeAddition::Stage::Mash) {
-         // .:TBD:.  This isn't the most elegant or accurate way of handling commas.  If we're returning a list, we
-         // should probably leave it to the caller to put commas in for display.
-         QString format;
-         if (firstTime) {
-            format = "%1 %2";
-            firstTime = false;
-         } else {
-            format = ", %1 %2";
-         }
-         reagents.append(
+         static QString const format {"%1 %2"};
+         result.append(
             format.arg(Measurement::displayAmount(fermentableAddition->amount(), 1))
                   .arg(fermentableAddition->fermentable()->name())
          );
       }
    }
-   return reagents;
+   return result;
 }
 
-
-QList<QString> Recipe::getReagents(QList<std::shared_ptr<RecipeAdditionHop>> hopAdditions, bool firstWort) {
-   QList<QString> reagents;
-
-   for (auto hopAddition : hopAdditions) {
-      if (firstWort && (hopAddition->isFirstWort())) {
-         QString tmp = QString("%1 %2,")
-               .arg(Measurement::displayAmount(hopAddition->amount(), 1))
-               .arg(hopAddition->hop()->name());
-         reagents.append(tmp);
+QList<QString> Recipe::getHopAdditionNameAndAmounts(bool const firstWort) const {
+   QList<QString> result;
+   for (auto const & hopAddition : this->hopAdditions()) {
+      if (firstWort == hopAddition->isFirstWort()) {
+         static QString const format {"%1 %2"};
+         result.append(
+            format.arg(Measurement::displayAmount(hopAddition->amount(), 1))
+                  .arg(hopAddition->hop()->name())
+         );
       }
    }
-   return reagents;
+   return result;
 }
 
-QList<QString> Recipe::getReagents(QList<std::shared_ptr<MashStep>> mashSteps) {
-   QList<QString> reagents;
+QList<QString> Recipe::getMashHeatingSteps() const {
+   QList<QString> result;
 
-   for (int ii = 0; ii < mashSteps.size(); ++ii) {
-      if (!mashSteps[ii]->isInfusion()) {
-         continue;
+   auto const mash{ this->mash() };
+   if (mash) {
+      for (auto const & mashStep : mash->mashSteps()) {
+         if (mashStep->isInfusion()) {
+            continue;
+         }
+         result.append(
+            tr("%1 water to %2").arg(
+               Measurement::displayAmount(Measurement::Amount{mashStep->amount_l(), Measurement::Units::liters}, 1)
+            ).arg(
+               Measurement::displayAmount(
+                  Measurement::Amount{mashStep->infuseTemp_c().value_or(mashStep->startTemp_c()),
+                                      Measurement::Units::celsius}, 1
+               )
+            )
+         );
       }
-
-      bool const commaNeeded {ii + 1 < mashSteps.size()};
-      reagents.append(
-         tr(commaNeeded ? "%1 water to %2, " : "%1 water to %2 ").arg(
-            Measurement::displayAmount(Measurement::Amount{mashSteps[ii]->amount_l(), Measurement::Units::liters}, 1)
-         ).arg(
-            Measurement::displayAmount(Measurement::Amount{mashSteps[ii]->infuseTemp_c().value_or(mashSteps[ii]->startTemp_c()), Measurement::Units::celsius}, 1)
-         )
-      );
    }
-   return reagents;
+   return result;
 }
 
 

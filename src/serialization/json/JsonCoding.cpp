@@ -22,6 +22,7 @@
 
 #include <QDebug>
 #include <QFile>
+#include <sourcemeta/blaze/compiler_error.h>
 
 #include "serialization/json/JsonRecord.h"
 #include "serialization/json/JsonUtils.h"
@@ -82,7 +83,8 @@ JsonRecordDefinition const & JsonCoding::getRoot() const {
    return this->pimpl->m_rootRecordDefinition;
 }
 
-bool JsonCoding::validateLoadAndStoreInDb(boost::json::value & inputDocument,
+bool JsonCoding::validateLoadAndStoreInDb(QString const & targetFolderPath,
+                                          boost::json::value & inputDocument,
                                           QTextStream & userMessage) const {
    try {
       JsonSchema const & schema = JsonSchema::instance(this->pimpl->m_schemaId);
@@ -90,7 +92,12 @@ bool JsonCoding::validateLoadAndStoreInDb(boost::json::value & inputDocument,
          qWarning() << Q_FUNC_INFO << "Schema validation failed";
          return false;
       }
-
+   } catch (sourcemeta::blaze::CompilerReferenceTargetNotSchemaError const & blazeException) {
+      qWarning() <<
+         Q_FUNC_INFO << "Caught exception while validating JSON file:" << blazeException.what() << "; identifier:" <<
+         QString::fromStdString(blazeException.identifier());
+      userMessage << blazeException.what();
+      return false;
    } catch (std::exception const & exception) {
       qWarning() <<
          Q_FUNC_INFO << "Caught exception while validating JSON file:" << exception.what();
@@ -127,19 +134,16 @@ bool JsonCoding::validateLoadAndStoreInDb(boost::json::value & inputDocument,
    //
    // Look at the root object first
    //
-   JsonRecord rootRecord{*this, rootRecordData, this->pimpl->m_rootRecordDefinition};
-   qDebug() << Q_FUNC_INFO << "Looking at field definitions of root element (" << this->pimpl->m_rootRecordDefinition.m_recordName << ")";
+   JsonRecordDefinition::LocalIdToDbId localIdToDbId;
+   JsonRecord rootRecord{&localIdToDbId, *this, rootRecordData, this->pimpl->m_rootRecordDefinition};
+   qDebug() <<
+      Q_FUNC_INFO << "Looking at field definitions of root element (" <<
+      this->pimpl->m_rootRecordDefinition.m_recordName << ")";
 
    ImportRecordCount stats;
 
-   if (!rootRecord.load(userMessage)) {
-      return false;
-   }
-   qDebug() << Q_FUNC_INFO;
-
-   // At the root level, Succeeded and FoundDuplicate are both OK return values.  It's only Failed that indicates an
-   // error (rather than in info) message for the user in userMessage.
-   if (JsonRecord::ProcessingResult::Failed == rootRecord.normaliseAndStoreInDb(nullptr, userMessage, stats)) {
+   // Root record by definition has no containing record, hence nullptr here
+   if (!rootRecord.load(targetFolderPath, nullptr, userMessage, stats)) {
       return false;
    }
 

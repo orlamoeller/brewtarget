@@ -139,6 +139,8 @@ public:
       /**
        * \brief Constructor
        *
+       * \param tableName
+       * \param thisTableFields
        * \param commonFields Used when we have several column definitions that are shared between multiple tables (eg
        *                     InventoryFermentable, InventoryHop, etc).
        */
@@ -195,11 +197,11 @@ public:
     */
    struct JunctionTableDefinition : public TableDefinition {
       AssumedNumEntries assumedNumEntries = MULTIPLE_ENTRIES_OK;
-      JunctionTableDefinition(char const * const tableName,
-                              std::initializer_list<TableField> tableFields,
-                              AssumedNumEntries assumedNumEntries = MULTIPLE_ENTRIES_OK) :
-         TableDefinition{tableName, tableFields},
-         assumedNumEntries{assumedNumEntries} {
+      JunctionTableDefinition(char const * const tableName_,
+                              std::initializer_list<TableField> const tableFields_,
+                              AssumedNumEntries const assumedNumEntries_ = MULTIPLE_ENTRIES_OK) :
+         TableDefinition{tableName_, tableFields_},
+         assumedNumEntries{assumedNumEntries_} {
          return;
       }
 
@@ -489,7 +491,7 @@ signals:
     * \param id The primary key of the deleted object.  (For the moment we assume all primary keys are integers.
     *           If we want to extend this in future then we'd change this param to a QVariant.)
     * \param object Shared pointer to the deleted object.  (Some recipients currently need the deleted object, and they
-    *               won't be able to get it from the ID because ... it's deleted.
+    *               won't be able to get it from the ID because ... it's deleted.)
     */
    void signalObjectDeleted(int id, std::shared_ptr<QObject> object);
 

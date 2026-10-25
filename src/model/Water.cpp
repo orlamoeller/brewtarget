@@ -19,13 +19,14 @@
 #include "model/Water.h"
 
 #include "database/ObjectStoreWrapper.h"
+#include "model/Folder.h"
 #include "model/NamedParameterBundle.h"
 #include "model/Recipe.h"
 #include "utils/AutoCompare.h"
 
 #include <qglobal.h> // For Q_ASSERT and Q_UNREACHABLE
 
-#ifdef BUILDING_WITH_CMAKE
+#ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
    #include "moc_Water.cpp"
 #endif

@@ -154,6 +154,7 @@ namespace {
 
    bool migrate_to_210(Database & db, BtSqlQuery & q) {
       QVector<QueryAndParameters> migrationQueries{
+         // NB: Table `salt` does not get created until schema version 9 -- see migrate_to_9() below
          {QString("ALTER TABLE equipment   ADD COLUMN folder %1").arg(db.getDbNativeTypeName<QString>())}, // Previously DEFAULT ''
          {QString("ALTER TABLE fermentable ADD COLUMN folder %1").arg(db.getDbNativeTypeName<QString>())}, // Previously DEFAULT ''
          {QString("ALTER TABLE hop         ADD COLUMN folder %1").arg(db.getDbNativeTypeName<QString>())}, // Previously DEFAULT ''
@@ -164,14 +165,13 @@ namespace {
          {QString("ALTER TABLE mash        ADD COLUMN folder %1").arg(db.getDbNativeTypeName<QString>())}, // Previously DEFAULT ''
          {QString("ALTER TABLE recipe      ADD COLUMN folder %1").arg(db.getDbNativeTypeName<QString>())}, // Previously DEFAULT ''
          {QString("ALTER TABLE brewnote    ADD COLUMN folder %1").arg(db.getDbNativeTypeName<QString>())}, // Previously DEFAULT ''
-         {QString("ALTER TABLE salt        ADD COLUMN folder %1").arg(db.getDbNativeTypeName<QString>())}, // Previously DEFAULT ''
          // Put the "Bt:.*" recipes into /brewtarget folder
          {QString("UPDATE recipe   SET folder='/brewtarget' WHERE name LIKE 'Bt:%'")},
          // Update version to 2.1.0
          {QString("UPDATE settings SET version='2.1.0' WHERE id=1")},
          // Used to trigger the code to populate the ingredient inheritance tables.  Gets removed in schema version 11.
          {QString("ALTER TABLE settings ADD COLUMN repopulatechildrenonnextstart %1").arg(db.getDbNativeTypeName<int>())},
-         {QString("UPDATE repopulatechildrenonnextstart integer=1")},
+         {QString("UPDATE settings SET repopulatechildrenonnextstart = 1")},
       };
       // Drop and re-create children tables with new UNIQUE requirement
       for (char const * baseTableName : {"equipment", "fermentable", "hop", "misc", "recipe", "style", "water", "yeast"}) {
@@ -186,26 +186,31 @@ namespace {
                                        db.getDbNativePrimaryKeyDeclaration(),
                                        db.getDbNativeTypeName<int>())});
       }
-      for (char const * tableName : {"fermentable_in_inventory", "hop_in_inventory", "misc_in_inventory"}) {
-         migrationQueries.append({QString("DROP TABLE   %1;").arg(tableName)});
+      for (char const * baseName : {"fermentable", "hop", "misc"}) {
+         migrationQueries.append({QString("DROP TABLE %1_in_inventory;").arg(baseName)});
          migrationQueries.append(
             {
                QString(
-                  "CREATE TABLE %1 (id %2, "
-                                 "amount %3);" // Previously DEFAULT 0
-               ).arg(tableName, db.getDbNativePrimaryKeyDeclaration(), db.getDbNativeTypeName<double>())
+                  "CREATE TABLE %1_in_inventory (id %2, "
+                                                "%1_id %3, "
+                                                "amount %4)" // Previously DEFAULT 0
+               ).arg(baseName,
+                     db.getDbNativePrimaryKeyDeclaration(),
+                     db.getDbNativeTypeName<int>(),
+                     db.getDbNativeTypeName<double>())
             }
          );
       }
       migrationQueries.append({QString("DROP TABLE   yeast_in_inventory")});
       migrationQueries.append(
          {
-            QString("CREATE TABLE %1 (id %2, "
-                                     "quanta %3);" // Previously DEFAULT 0
-            ).arg("yeast_in_inventory", db.getDbNativePrimaryKeyDeclaration(), db.getDbNativeTypeName<double>())
+            QString(
+               "CREATE TABLE yeast_in_inventory (id %1, yeast_id %2, quanta %3)" // Previously DEFAULT 0
+            ).arg(db.getDbNativePrimaryKeyDeclaration(),
+                  db.getDbNativeTypeName<int>(),
+                  db.getDbNativeTypeName<double>())
          }
       );
-      migrationQueries.append({QString("UPDATE settings VALUES(1,2)")});
       return executeSqlQueries(q, migrationQueries);
    }
 
@@ -2064,7 +2069,7 @@ namespace {
          {QString("ALTER TABLE yeast       DROP COLUMN amount_is_weight")},
          //
          // We would like hop_in_inventory.hop_id to be a foreign key to hop.id.  SQLite only lets you create foreign
-         // key constraints at the time that you create the table (or add a new column), so this is a bit of a palava.
+         // key constraints at the time that you create the table (or add a new column), so this is a bit of a palaver.
          //
          {QString("CREATE TABLE tmp_hop_in_inventory ( "
                     "id        %1, "
@@ -3059,8 +3064,10 @@ namespace {
     *        We add base and target water profiles to Recipe, along with mashRo_pct and spargeRo_pct (which we drop from
     *        Water).
     *
-    *        We also tidy up brew_log, and drop the no-longer used equipment.boil_time and equipment.calc_boil_volume
+    *        We tidy up brew_log, and drop the no-longer used equipment.boil_time and equipment.calc_boil_volume
     *        columns.
+    *
+    *        And we add typical ranges for alpha and beta acid to hop.
     */
    bool migrate_to_21([[maybe_unused]] Database & db, BtSqlQuery & q) {
       QVector<QueryAndParameters> const migrationQueries{
@@ -3069,20 +3076,33 @@ namespace {
          // the type names for water agents (previously salts).
          //
          // Strictly speaking, we should move anything of type "AcidulatedMalt" into the Fermentables table rather than
-         // the Misc one.  However, this might create as many problems as it solves.  An aciduated malt in the Salt
+         // the Misc one.  However, this might create as many problems as it solves.  An acidulated malt in the Salt
          // table would not have counted towards the grain bill and so would already have needed a duplicate entry in
          // the Fermentable table.  So, in this instance, we'll leave it to the user to make corrective modifications
          // after this migration.
          //
-         {QString("UPDATE salt SET stype = 'calcium chloride' "   "WHERE stype = 'CaCl2'"         )},
-         {QString("UPDATE salt SET stype = 'calcium carbonate' "  "WHERE stype = 'CaCO3'"         )},
-         {QString("UPDATE salt SET stype = 'calcium sulfate' "    "WHERE stype = 'CaSO4'"         )},
-         {QString("UPDATE salt SET stype = 'magnesium sulfate' "  "WHERE stype = 'MgSO4'"         )},
-         {QString("UPDATE salt SET stype = 'sodium chloride' "    "WHERE stype = 'NaCl'"          )},
-         {QString("UPDATE salt SET stype = 'sodium bicarbonate' " "WHERE stype = 'NaHCO3'"        )},
-         {QString("UPDATE salt SET stype = 'lactic acid' "        "WHERE stype = 'LacticAcid'"    )},
-         {QString("UPDATE salt SET stype = 'phosphoric acid' "    "WHERE stype = 'H3PO4'"         )},
-         {QString("UPDATE salt SET stype = 'other' "              "WHERE stype = 'AcidulatedMalt'")},
+         // Similarly, we are taking this opportunity to properly distinguish between anhydrous and hydrate forms of
+         // minerals.  For some things, this means we have to convert previously "unspecified" to either the anhydrous
+         // form or a hydrate one:
+         //
+         //    `calcium chloride` => `calcium chloride anhydrous` - This is the conservative choice, and also what
+         //                                                         Bru’n Water and BeerSmith 4 both default to.)
+         //
+         //    `calcium sulfate` => `calcium sulfate dihydrate` - This is gypsum, which is widely used in brewing,
+         //                                                       whereas the anhydrous form is not.
+         //
+         //    `magnesium sulfate` => `magnesium sulfate heptahydrate` - This is Epsom salt, which is widely used in
+         //                                                              brewing, whereas the anhydrous form is not.
+         //
+         {QString("UPDATE salt SET stype = 'calcium chloride anhydrous' "      "WHERE stype = 'CaCl2'"         )},
+         {QString("UPDATE salt SET stype = 'calcium carbonate' "               "WHERE stype = 'CaCO3'"         )},
+         {QString("UPDATE salt SET stype = 'calcium sulfate dihydrate' "       "WHERE stype = 'CaSO4'"         )},
+         {QString("UPDATE salt SET stype = 'magnesium sulfate heptahydrate' "  "WHERE stype = 'MgSO4'"         )},
+         {QString("UPDATE salt SET stype = 'sodium chloride' "                 "WHERE stype = 'NaCl'"          )},
+         {QString("UPDATE salt SET stype = 'sodium bicarbonate' "              "WHERE stype = 'NaHCO3'"        )},
+         {QString("UPDATE salt SET stype = 'lactic acid' "                     "WHERE stype = 'LacticAcid'"    )},
+         {QString("UPDATE salt SET stype = 'phosphoric acid' "                 "WHERE stype = 'H3PO4'"         )},
+         {QString("UPDATE salt SET stype = 'other' "                           "WHERE stype = 'AcidulatedMalt'")},
          // Add the extra water agent columns to misc before we migrate rows from salt
          // Also, add a temporary column to misc to make it easier to migrate salt_in_recipe, salt_stock_purchase, etc
          {QString("ALTER TABLE misc ADD COLUMN water_agent_type %1").arg(db.getDbNativeTypeName<QString>())},
@@ -3307,6 +3327,50 @@ namespace {
          //
          {QString("ALTER TABLE brew_log ADD COLUMN forecast_original_gravity_sg %1").arg(db.getDbNativeTypeName<double>())},
 
+         //
+         // Add new min/max ranges for alpha and beta acid to hop.  And, while we're here, bring the existing column
+         // names into line with convention.
+         //
+         {QString("ALTER TABLE hop ADD COLUMN alpha_min_pct %1").arg(db.getDbNativeTypeName<double>())},
+         {QString("ALTER TABLE hop ADD COLUMN alpha_max_pct %1").arg(db.getDbNativeTypeName<double>())},
+         {QString("ALTER TABLE hop ADD COLUMN  beta_min_pct %1").arg(db.getDbNativeTypeName<double>())},
+         {QString("ALTER TABLE hop ADD COLUMN  beta_max_pct %1").arg(db.getDbNativeTypeName<double>())},
+         {QString("ALTER TABLE hop RENAME COLUMN          alpha TO          alpha_pct")},
+         {QString("ALTER TABLE hop RENAME COLUMN           beta TO           beta_pct")},
+         {QString("ALTER TABLE hop RENAME COLUMN  caryophyllene TO  caryophyllene_pct")},
+         {QString("ALTER TABLE hop RENAME COLUMN     cohumulone TO     cohumulone_pct")},
+         {QString("ALTER TABLE hop RENAME COLUMN       humulene TO       humulene_pct")},
+         {QString("ALTER TABLE hop RENAME COLUMN        myrcene TO        myrcene_pct")},
+
+         // HSI stands for "hop stability index", but it's not a very widely used term AFAIK, so we switch to a more
+         // descriptive name.
+         {QString("ALTER TABLE hop RENAME COLUMN hsi TO sixMonthAlphaLoss_pct")},
+
+         //
+         // Per comments in Equipment.beer.schema, some authors argue that the vessel where fermentation happens should
+         // be referred to as a "fermentor", with the word "fermenter" reserved for the organism (such as yeast) that
+         // performs the fermentation.  In reality, the use of "fermenter" for the fermentation vessel is widespread,
+         // and it's rare to refer to yeast etc as a "fermenter".  So, although "fermentor" is more "correct" it's also
+         // potentially a source of errors and confusion.  So we sidestep the issue by using fermentaiton vessel and FV.
+         //
+         {QString("ALTER TABLE equipment RENAME COLUMN fermenter_batch_size_l TO fv_batch_size_l")},
+         {QString("ALTER TABLE equipment RENAME COLUMN fermenter_type         TO fv_type"        )},
+         {QString("ALTER TABLE equipment RENAME COLUMN fermenter_loss_l       TO fv_loss_l"      )},
+         {QString("ALTER TABLE equipment RENAME COLUMN fermenter_notes        TO fv_notes"       )},
+
+         //
+         // New field for the percentage of a fermentable's extract that brewing yeast can ferment (see comments in
+         // model/Fermentable.h).  NULL means 100%.
+         //
+         {QString("ALTER TABLE fermentable ADD COLUMN fermentable_fraction_pct %1").arg(db.getDbNativeTypeName<double>())},
+         //
+         // Previously, the only unfermentable fermentable we knew about was one called exactly "Milk Sugar (Lactose)"
+         // (see the old isFermentableSugar() in model/Recipe.cpp).  We now use the new field instead, so set it for
+         // lactose, matching on name a bit more generously than before so that we also catch eg "Lactose" and
+         // "Lactose (Milk Sugar)".  We deliberately don't touch anything else (eg maltodextrin) here, as that would
+         // change the calculated FG of users' existing recipes; they can set the field themselves in the editor.
+         //
+         {QString("UPDATE fermentable SET fermentable_fraction_pct = 0 WHERE LOWER(name) LIKE '%lactose%'")},
       };
 
       return executeSqlQueries(q, migrationQueries);
@@ -3489,15 +3553,11 @@ int DatabaseSchemaHelper::schemaVersion(QSqlDatabase & db) {
    }
 
    // Get the string before we kill it by convert()-ing
-   QString stringVer( ver.toString() );
+   QString const stringVer( ver.toString() );
    qDebug() << Q_FUNC_INFO << "Database schema version" << stringVer;
 
    // Initially, versioning was done with strings, so we need to convert
    // the old version strings to integer versions
-   if (ver.canConvert<int>()) {
-      return ver.toInt();
-   }
-
    if (stringVer == "2.0.0") {
       return 1;
    }
@@ -3508,6 +3568,13 @@ int DatabaseSchemaHelper::schemaVersion(QSqlDatabase & db) {
 
    if (stringVer == "2.1.0") {
       return 3;
+   }
+
+   // Note that we have to do this _after_ we checked for the string versions above.  QVariant::canConvert<int>() will
+   // return true on any string content, and QVariant::toInt() will yield 0 if, eg, the variant's string content is
+   // "2.0.2".
+   if (ver.canConvert<int>()) {
+      return ver.toInt();
    }
 
    qCritical() << "Could not find database version";

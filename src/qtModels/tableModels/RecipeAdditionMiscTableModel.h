@@ -39,13 +39,14 @@ class BtStringConst;
 class Recipe;
 
 // Define the columns on this table
+// *** NB: These need to be in the same order as in the COLUMN_INFOS macro in the .cpp file! ***
 COLUMN_NAMES(RecipeAdditionMiscTableModel, Name          ,
                                            Type          ,
                                            Amount        ,
-                                           AmountType    ,
-                                           TotalInventory,
                                            Stage         ,
-                                           Time          ,)
+                                           Time          ,
+                                           AmountType    ,
+                                           TotalInventory,)
 
 /*!
  * \class RecipeAdditionMiscTableModel

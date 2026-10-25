@@ -15,19 +15,32 @@ happens, so I'm now setting it to a slightly arbitrary time early in the morning
 * We'll list other new features here...
 
 ## v5.2.0
+Various improvements, including:
 * Migrate to new XML libraries (libxml2 replaces Xerces and Xalan) [1131](https://github.com/Brewtarget/brewtarget/issues/1131)
+
+### New Features
 * DotBeer file format support [1122](https://github.com/Brewtarget/brewtarget/issues/1122)
 * Water Calculator improvements [252](https://github.com/Brewtarget/brewtarget/issues/252)
 * Salts (aka water agents) are now a subcategory of Miscellaneous ingredients
-
-### New Features
-None
+* Hops now support optional min/max values for alpha acid and beta acid
+* Import to folder [1133]https://github.com/Brewtarget/brewtarget/issues/1133
 
 ### Bug Fixes
+* Exporting a style with no style letter to BeerJSON creates a file that cannot be imported [1121](https://github.com/Brewtarget/brewtarget/issues/1121)
 * Brewtarget fails to update PostgreSQL database schema [1126](https://github.com/Brewtarget/brewtarget/issues/1126)
+* Root-level drag-and-drop [1137](https://github.com/Brewtarget/brewtarget/issues/1137)
+* Mash tree not updated when you add a mash step [1043](https://github.com/Brewtarget/brewtarget/issues/1043) (NB: May have been fixed in an earlier release!)
+* Range comparison on the water chemistry is not quite right [572](https://github.com/Brewtarget/brewtarget/issues/572)
+* 5.1.x - snapshots are not showing [1139](https://github.com/Brewtarget/brewtarget/issues/1139)
+* 5.1.1 Install Issue, upgrading from 2.0.2 - database fails to update [1143](https://github.com/Brewtarget/brewtarget/issues/1143)
+* Selecting a folder doesn't let you export its contents [1148](https://github.com/Brewtarget/brewtarget/issues/1148)
+* Brewtarget 5.1.2 crashes when importing BeerXML recipe containing a WATERS record [1154](https://github.com/Brewtarget/brewtarget/issues/1154)
+* Importing from BeerXML sets fermentable addition stage to boil instead of mash [1156](https://github.com/Brewtarget/brewtarget/issues/1156)
+* Creating a fermentable stock purchase with no color causes a crash [1159](https://github.com/Brewtarget/brewtarget/issues/1159)
+* Conversion amounts for imperial tablespoons and teaspoons are wrong [1160](https://github.com/Brewtarget/brewtarget/issues/1160)
 
 ### Release Timestamp
-Wed, 10 Jun 2026 05:01:02 +0100
+Wed, 19 Aug 2026 05:01:02 +0100
 
 ## v5.1.1
 Bug fixes.
