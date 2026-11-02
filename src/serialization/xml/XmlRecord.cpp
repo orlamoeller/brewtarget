@@ -19,6 +19,7 @@
 #include <QDebug>
 #include <QXmlStreamWriter>
 
+#include "model/Folder.h"
 #include "serialization/xml/XmlCoding.h"
 #include "utils/OptionalHelpers.h"
 #include "utils/ObjectAddressStringMapping.h"
@@ -451,6 +452,16 @@ bool XmlRecord::load(XmlDocument & document,
                      }
                      break;
 
+                  case XmlRecordDefinition::FieldType::FolderPath:
+                     //
+                     // As for JSON, we don't put the folder path in the NamedParameterBundle, because it is relative
+                     // to the folder we are importing into, and that gets applied when we store the object in the
+                     // database.  See comments on SerializationRecord::m_folderSubPath and
+                     // NamedEntityRecordBase::doSetFolderPath.
+                     //
+                     this->m_folderSubPath = static_cast<QString>(value).trimmed();
+                     continue; // NB: _NOT_break here.  We want to jump straight to the next run through the for loop.
+
                   case XmlRecordDefinition::FieldType::RequiredConstant:
                      //
                      // This is a field that is required to be in the XML, but whose value we don't need (and for which
@@ -511,6 +522,15 @@ bool XmlRecord::load(XmlDocument & document,
                // If we do need it, we now store the value
                //
                if (!fieldDefinition.propertyPath.isNull()) {
+                  // If this is a field that is required in BeerXML but optional for us, then the null sentinel for
+                  // the field means the property should be unset.  See comment in serialization/NullSentinel.h.
+                  if (Serialization::applyNullSentinelOnRead(fieldDefinition.nullSentinel,
+                                                             propertyIsOptional,
+                                                             parsedValue)) {
+                     qDebug() <<
+                        Q_FUNC_INFO << "Treating" << this->m_recordDefinition.m_namedEntityClassName << "node" <<
+                        fieldDefinition.xPath << "=" << value << "as not set";
+                  }
                   this->m_namedParameterBundle.insert(fieldDefinition.propertyPath, parsedValue);
                }
             }
@@ -604,7 +624,8 @@ bool XmlRecord::load(XmlDocument & document,
    return true;
 }
 
-void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
+void XmlRecord::toXml(QString const & baseFolderPath,
+                      NamedEntity const & namedEntityToExport,
                       QTextStream & out,
                       bool const includeRecordNameTags,
                       int indentLevel,
@@ -707,7 +728,8 @@ void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
 
             if (childNamedEntity) {
                // For a "base record", having numContainingTags == -1 means the fourth parameter here is still correct!
-               subRecord->toXml(*childNamedEntity,
+               subRecord->toXml(baseFolderPath,
+                                *childNamedEntity,
                                 out,
                                 numContainingTags >= 0,
                                 indentLevel + numContainingTags + 1,
@@ -723,7 +745,8 @@ void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
             //
             // Instead, we get the subclass of this class (eg XmlRecipeRecord) to do the work
             //
-            this->subRecordToXml(fieldDefinition,
+            this->subRecordToXml(baseFolderPath,
+                                 fieldDefinition,
                                  *subRecord,
                                  namedEntityToExport,
                                  out,
@@ -812,6 +835,9 @@ void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
                if (Optional::removeOptionalWrapperIfPresent<int>(value, propertyIsOptional)) {
                   // QVariant knows how to convert a number to a string
                   valueAsText = value.toString();
+               } else if (fieldDefinition.nullSentinel) {
+                  // See comment for Double below
+                  valueAsText = fieldDefinition.nullSentinel->m_value.toString();
                }
                break;
 
@@ -819,6 +845,9 @@ void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
                if (Optional::removeOptionalWrapperIfPresent<unsigned int>(value, propertyIsOptional)) {
                   // QVariant knows how to convert a number to a string
                   valueAsText = value.toString();
+               } else if (fieldDefinition.nullSentinel) {
+                  // See comment for Double below
+                  valueAsText = fieldDefinition.nullSentinel->m_value.toString();
                }
                break;
 
@@ -829,14 +858,13 @@ void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
                   // scientific notation.
 
                   valueAsText = QString::number(value.toDouble(), 'f', QLocale::FloatingPointShortest);
-               } else {
-                  // There is at least one field (FERMENTABLE/YIELD) that is required in BeerXML but optional in our
+               } else if (fieldDefinition.nullSentinel) {
+                  // There are some fields (eg FERMENTABLE/YIELD) that are required in BeerXML but optional in our
                   // internal data model.  In such a case, if our internal field is not set, we have to have a default
                   // value to write out for the output BeerXML to be valid.
-                  if (std::holds_alternative<double>(fieldDefinition.valueDecoder)) {
-                     double defaultValue = std::get<double>(fieldDefinition.valueDecoder);
-                     valueAsText = QString::number(defaultValue, 'f', QLocale::FloatingPointShortest);
-                  }
+                  valueAsText = QString::number(fieldDefinition.nullSentinel->m_value.toDouble(),
+                                                'f',
+                                                QLocale::FloatingPointShortest);
                }
                break;
 
@@ -859,6 +887,26 @@ void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
                   // It's a coding error if we couldn't find a string representation for the enum
                   Q_ASSERT(match && !match->isEmpty());
                   valueAsText = *match;
+               }
+               break;
+
+            case XmlRecordDefinition::FieldType::FolderPath:
+               //
+               // As in JsonRecord::insertValue, we write the folder path relative to baseFolderPath.  If the user right
+               // clicked on, say, folder /foo/bar and clicked "Export", then an element with folder path "/foo/bar"
+               // should be written with no folder path and an element with folder path "/foo/bar/hum/bug" should be
+               // written with path "hum/bug".  Since this is an extension tag, we don't write it at all if there is
+               // no (sub)folder to write.
+               //
+               if (Optional::removeOptionalWrapperIfPresent<QString>(value, propertyIsOptional)) {
+                  QString const subFolderPath = FolderCommon::subPath(baseFolderPath, value.toString().trimmed());
+                  if (subFolderPath.isEmpty() || subFolderPath == "/") {
+                     continue;
+                  }
+                  QXmlStreamWriter qXmlStreamWriter(&valueAsText);
+                  qXmlStreamWriter.writeCharacters(subFolderPath);
+               } else {
+                  continue;
                }
                break;
 
@@ -891,7 +939,12 @@ void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
                break;
          }
 
-         if (propertyIsOptional && value.isNull()) {
+         //
+         // If the property is unset, we don't write the field -- unless it's one that's required in BeerXML, in which
+         // case we will have written its null sentinel above.  (Before we checked for this here, the default value for
+         // eg FERMENTABLE/YIELD was never actually written, so the output was not valid BeerXML.)
+         //
+         if (propertyIsOptional && value.isNull() && !fieldDefinition.nullSentinel) {
             qDebug() <<
                Q_FUNC_INFO << "Not writing XPath" << fieldDefinition.xPath << "as property" <<
                fieldDefinition.propertyPath.asXPath() << "is unset, ie set to std::nullopt";
@@ -910,7 +963,8 @@ void XmlRecord::toXml(NamedEntity const & namedEntityToExport,
    return;
 }
 
-void XmlRecord::subRecordToXml(XmlRecordDefinition::FieldDefinition const & fieldDefinition,
+void XmlRecord::subRecordToXml([[maybe_unused]] QString const & baseFolderPath,
+                               XmlRecordDefinition::FieldDefinition const & fieldDefinition,
                                [[maybe_unused]] XmlRecord const & subRecord,
                                NamedEntity const & namedEntityToExport,
                                [[maybe_unused]] QTextStream & out,

@@ -296,6 +296,19 @@ Fermentable::Fermentable(NamedParameterBundle const & namedParameterBundle) :
       this->m_color_lovibond = 0.0;
    }
 
+   //
+   // Neither BeerXML nor BeerJSON has a field for the fermentable fraction.  Brewtarget 5.1.x and earlier treated any
+   // Sugar called "Milk Sugar (Lactose)" as unfermentable, and the database migration to schema 21 sets this field to
+   // 0 for anything with "lactose" in its name.  So, to keep imported recipes giving the same FG as they did before
+   // (and as their database equivalents do), we do the same when the field was not supplied.  This does not affect
+   // reading from the database, which always supplies the field, even when it's NULL.  It does also apply to a dotBeer
+   // file that omits fermentable_fraction for lactose, but that is what the user would want anyway.
+   //
+   if (!namedParameterBundle.contains(PropertyNames::Fermentable::fermentableFraction_pct) &&
+       this->name().contains("lactose", Qt::CaseInsensitive)) {
+      this->m_fermentableFraction_pct = 0.0;
+   }
+
    CONSTRUCTOR_END
    return;
 }
@@ -364,8 +377,15 @@ std::optional<double>                  Fermentable::maxInBatch_pct           () 
 std::optional<bool>                    Fermentable::recommendMash            () const { return                    this->m_recommendMash            ; }
 std::optional<double>                  Fermentable::ibuGalPerLb              () const { return                    this->m_ibuGalPerLb              ; }
 // ⮜⮜⮜ All below added for BeerJSON support ⮞⮞⮞
-std::optional<Fermentable::GrainGroup> Fermentable::grainGroup               () const { return                    this->m_grainGroup               ; }
-std::optional<int>                     Fermentable::grainGroupAsInt          () const { return Optional::toOptInt(this->m_grainGroup)              ; }
+//
+// Grain group is only meaningful for grains (and dotBeer only allows it when the type is grain).  As with the water
+// agent fields on Misc, rather than clear the value if the type is changed (which would complicate undo/redo), we just
+// don't return it when the type is not grain.
+//
+std::optional<Fermentable::GrainGroup> Fermentable::grainGroup               () const {
+   return this->m_type == Fermentable::Type::Grain ? this->m_grainGroup : std::nullopt;
+}
+std::optional<int>                     Fermentable::grainGroupAsInt          () const { return Optional::toOptInt(this->grainGroup())              ; }
 QString                                Fermentable::producer                 () const { return                    this->m_producer                 ; }
 QString                                Fermentable::productId                () const { return                    this->m_productId                ; }
 std::optional<double>                  Fermentable::fineGrindYield_pct       () const { return                    this->m_fineGrindYield_pct       ; }
@@ -388,6 +408,30 @@ std::optional<double>                  Fermentable::betaGlucan_ppm           () 
 //
 std::optional<double>                  Fermentable::lacticAcidByWeight_pct   () const { return                    this->m_lacticAcidByWeight_pct   ; }
 std::optional<double>                  Fermentable::fermentableFraction_pct  () const { return                    this->m_fermentableFraction_pct  ; }
+
+std::optional<double> Fermentable::effectiveFineGrindYield_pct() const {
+   if (this->m_fineGrindYield_pct) {
+      return this->m_fineGrindYield_pct;
+   }
+   if (this->m_coarseGrindYield_pct) {
+      // Fine/coarse difference is "fine grind yield minus coarse grind yield"
+      return *this->m_coarseGrindYield_pct + this->m_coarseFineDiff_pct.value_or(0.0);
+   }
+   if (this->m_potentialYield_sg) {
+      //
+      // Potential yield is the specific gravity of a solution of 1 lb of the ingredient (as weighed, ie including any
+      // moisture) in 1 US gallon of water.  Per the dotBeer schema, it can be estimated from the fine grind yield as
+      //    potential = 1 + 0.046 × fineGrindYield / 100 × (1 − moisture / 100)
+      // where 1.046 is the potential of sucrose.  So we just invert this.
+      //
+      double const dryFraction = 1.0 - this->m_moisture_pct.value_or(0.0) / 100.0;
+      if (dryFraction <= 0.0) {
+         return std::nullopt;
+      }
+      return (*this->m_potentialYield_sg - 1.0) / 0.046 * 100.0 / dryFraction;
+   }
+   return std::nullopt;
+}
 
 bool Fermentable::isExtract() const {
    return ((type() == Fermentable::Type::Extract) || (type() == Fermentable::Type::Dry_Extract));

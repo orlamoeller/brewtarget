@@ -98,8 +98,8 @@ public:
    [[nodiscard]] static QString joinPaths(QString const & leftPath, QString const & rightPath);
 
    /**
-    * Converts \c fullPath to a sub-path of \c basePath if \c basePath is a prefix of \c fullPath.  Otherwise returns
-    * \c fullPath unchanged.
+    * Converts \c fullPath to a sub-path of \c basePath if \c basePath is a path prefix of \c fullPath.  Otherwise
+    * returns \c fullPath unchanged.  NB: "/foo/bar" is a path prefix of "/foo/bar/hum" but not of "/foo/barbie".
     *
     * @param basePath
     * @param fullPath
@@ -224,6 +224,26 @@ public:
          parents.insert(0, parent);
       }
       return parents;
+   }
+
+   /**
+    * @brief Check whether we are the same as another folder or one of its ancestors
+    *
+    * @param other
+    * @return \c true if this folder is \c other or is one of its parents (or grandparents etc).  Used to stop a folder
+    *         being moved into itself or into one of its own subfolders, which would create a loop in the folder
+    *         hierarchy.
+    */
+   bool isSelfOrAncestorOf(Folder<NE> const & other) const {
+      if (other.key() == this->key()) {
+         return true;
+      }
+      for (Folder<NE> const * ancestor : other.parentFolders()) {
+         if (ancestor->key() == this->key()) {
+            return true;
+         }
+      }
+      return false;
    }
 
    /**

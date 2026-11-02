@@ -120,6 +120,7 @@
 #include "model/Equipment.h"
 #include "model/Fermentable.h"
 #include "model/Fermentation.h"
+#include "model/FermentationStep.h"
 #include "model/Folder.h"
 #include "model/Mash.h"
 #include "model/Recipe.h"
@@ -1809,12 +1810,11 @@ void MainWindow::droppedRecipeEquipment(Equipment * kitRaw) {
                                                       &MainWindow::updateEquipmentInUi,
                                                       tr("Change Recipe Kit"));
 
-   // Keep the mash tun weight and specific heat up to date.
-   auto mash = this->pimpl->m_recipeObs->mash();
-   if (mash) {
-      new SimpleUndoableUpdate(*mash, TYPE_INFO(Mash, mashTunWeight_kg         ), kit->mashTunWeight_kg()         , tr("Change Tun Weight")       , equipmentUpdate);
-      new SimpleUndoableUpdate(*mash, TYPE_INFO(Mash, mashTunSpecificHeat_calGC), kit->mashTunSpecificHeat_calGC(), tr("Change Tun Specific Heat"), equipmentUpdate);
-   }
+   //
+   // NB: We used to copy the mash tun weight and specific heat from the equipment to the mash here.  We no longer need
+   // to, as calculations now take them from the recipe's equipment (falling back to the deprecated fields on the Mash
+   // only if the equipment doesn't have them) -- see Recipe::mashTunHeatCapacity_kcalC.
+   //
 
    if (QMessageBox::question(this,
                              tr("Equipment request"),
@@ -1830,7 +1830,8 @@ void MainWindow::droppedRecipeEquipment(Equipment * kitRaw) {
       new SimpleUndoableUpdate(*this->pimpl->m_recipeObs, TYPE_INFO(Recipe, batchSize_l), kit->fvBatchSize_l(), tr("Change Batch Size"), equipmentUpdate);
 
       auto const boil = this->pimpl->m_recipeObs->nonOptBoil();
-      new SimpleUndoableUpdate(*boil, TYPE_INFO(Boil, preBoilSize_l), kit->kettleBoilSize_l(), tr("Change Boil Size"), equipmentUpdate);
+      // See comment in Equipment::defaultPreBoilSize_l for why we pass in the boil time
+      new SimpleUndoableUpdate(*boil, TYPE_INFO(Boil, preBoilSize_l), kit->defaultPreBoilSize_l(boil->boilTime_mins()), tr("Change Boil Size"), equipmentUpdate);
    }
 
    // This will do the equipment update and any related updates - see above
@@ -2130,6 +2131,13 @@ std::shared_ptr<Recipe>  MainWindow::newRecipe() {
       std::make_shared<Fermentation>(tr("Automatically-created Fermentation for %1").arg(name));
    // NB: Recipe::setFermentation will ensure Fermentation is stored in the database
    newRec->setFermentation(newFermentation);
+   //
+   // As with the Boil, we give the new Fermentation a minimal profile -- in this case a single primary fermentation
+   // step -- which the user can then edit.  This is the same thing the database migration does for older Recipes ("we
+   // assume everything has a primary fermentation").  Apart from anything else, a Fermentation must have at least one
+   // step in dotBeer (and BeerJSON), so a new Recipe would otherwise not be exportable until the user had added one.
+   //
+   newFermentation->add(std::make_shared<FermentationStep>(tr("Primary fermentation for %1").arg(name)));
 
    // Set the following stuff so everything appears nice
    // and the calculations don't divide by zero... things like that.
@@ -2145,7 +2153,7 @@ std::shared_ptr<Recipe>  MainWindow::newRecipe() {
       // database
       if (auto const equipment = ObjectStoreWrapper::getById<Equipment>(defEquipKey.toInt())) {
          newRec->setBatchSize_l( equipment->fvBatchSize_l() );
-         newBoil->setPreBoilSize_l( equipment->kettleBoilSize_l() );
+         newBoil->setPreBoilSize_l( equipment->defaultPreBoilSize_l(newBoil->boilTime_mins()) );
          newRec->setEquipment(equipment);
       }
    }

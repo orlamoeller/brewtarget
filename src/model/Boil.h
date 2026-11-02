@@ -145,6 +145,20 @@ public:
     */
    static constexpr double minimumBoilTemperature_c{81.0};
 
+   /**
+    * \brief Per dotBeer (see AdditionSchedule in Recipe.beer.schema and BoilStep in Boil.beer.schema), a boil step
+    *        whose start or end temperature is not set is assumed to be at boiling at that point.  These helpers
+    *        encapsulate that rule so that all the code that classifies boil steps agrees.
+    */
+   static bool startsAtBoil(BoilStep const & boilStep);
+   static bool endsAtBoil  (BoilStep const & boilStep);
+
+   /**
+    * \brief A step is part of the "boil proper" if both its start and end temperatures are above
+    *        \c minimumBoilTemperature_c (with unset temperatures treated as boiling -- see \c startsAtBoil).
+    */
+   static bool isBoilProper(BoilStep const & boilStep);
+
    //=================================================== PROPERTIES ====================================================
    Q_PROPERTY(QString description   READ description   WRITE setDescription)
    Q_PROPERTY(QString notes         READ notes         WRITE setNotes      )
@@ -198,6 +212,13 @@ public:
     *        during the pre-boil or post-boil respectively.
     */
    void ensureStandardProfile();
+
+   /**
+    * \brief Returns the numbers (counting from 1) of the first and last steps of the boil proper.  If there's no step
+    *        that's identifiably the boil proper, we return the first and last steps of the boil.  (Same test for "boil
+    *        proper" as \c Boil::boilTime_mins.)
+    */
+   std::pair<int, int> boilProperSteps() const;
 
 public slots:
    void acceptSetMemberChange(QMetaProperty, QVariant);

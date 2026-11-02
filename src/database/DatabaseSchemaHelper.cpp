@@ -3068,9 +3068,16 @@ namespace {
     *        columns.
     *
     *        And we add typical ranges for alpha and beta acid to hop.
+    *
+    *        And, for equipment (see comments in model/Equipment.h):
+    *           - we add foundation_volume_l;
+    *           - we rename mash_tun_grain_absorption_lkg to grain_absorption_lkg (because, as in dotBeer, it applies to
+    *             whichever vessel the mash happens in, which is the kettle if there is no mash tun);
+    *           - we add kettle_volume_l and fv_volume_l for the capacities of the kettle and fermentation vessel,
+    *             which were previously conflated with the default pre-boil volume and batch size.
     */
    bool migrate_to_21([[maybe_unused]] Database & db, BtSqlQuery & q) {
-      QVector<QueryAndParameters> const migrationQueries{
+      QVector<QueryAndParameters> migrationQueries{
          //
          // Since we're moving them to another table, and introducing DotBeer support, this is a good time to clean up
          // the type names for water agents (previously salts).
@@ -3120,8 +3127,13 @@ namespace {
                                     "mtype, "
                                     "water_agent_type, "
                                     "water_agent_percent_acid) "
+                  //
+                  // NB: We use || rather than CONCAT(), as the latter only arrived in SQLite 3.44 (2023), which is
+                  //     newer than the SQLite on, eg, Debian 12 or Ubuntu 22.04.  Unlike CONCAT(), || gives NULL if
+                  //     either argument is NULL, hence the COALESCE().
+                  //
                   "SELECT id, "
-                         "CONCAT(name, ' (migrated from salts)') AS name, "
+                         "COALESCE(name, '') || ' (migrated from salts)' AS name, "
                          "deleted, "
                          "'water agent', "
                          "stype, "
@@ -3248,10 +3260,9 @@ namespace {
          {QString("ALTER TABLE fermentable ADD COLUMN lactic_acid_by_weight_pct %1").arg(db.getDbNativeTypeName<double>())},
 
          //
-         // Now we drop the columns that we stopped using in an earlier release
+         // (We also drop equipment.boil_time and equipment.calc_boil_volume, which we stopped using in an earlier
+         // release, but see below for why that's not done here.)
          //
-         {QString("ALTER TABLE equipment DROP COLUMN boil_time")},
-         {QString("ALTER TABLE equipment DROP COLUMN calc_boil_volume")},
 
          //
          // Now we sort out water profiles on Recipe.
@@ -3264,16 +3275,43 @@ namespace {
          // is not really exposed in the UI and is no longer needed.  The names of the new water profile fields on
          // Recipe now fulfil this purpose.
          //
-         {QString("ALTER TABLE water DROP COLUMN mash_ro")},
-         {QString("ALTER TABLE water DROP COLUMN sparge_ro")},
-         {QString("ALTER TABLE water DROP COLUMN wtype")},
-
          // DB-specific version of ALTER TABLE recipe ADD COLUMN water_base INTEGER REFERENCES water(id)
          {QString(db.getSqlToAddColumnAsForeignKey()).arg("recipe", "water_base", "water", "id")},
          // DB-specific version of ALTER TABLE recipe ADD COLUMN water_target INTEGER REFERENCES water(id)
          {QString(db.getSqlToAddColumnAsForeignKey()).arg("recipe", "water_target", "water", "id")},
          {QString("ALTER TABLE recipe ADD COLUMN ro_water_mash_pct   %1").arg(db.getDbNativeTypeName<double>())},
          {QString("ALTER TABLE recipe ADD COLUMN ro_water_sparge_pct %1").arg(db.getDbNativeTypeName<double>())},
+         //
+         // Before we drop water_in_recipe and water.wtype, carry across the base and target water profiles that older
+         // versions of the water tool saved on recipes.  The tool looked through the recipe's water_in_recipe rows and
+         // took the (last) one whose water had wtype 0 (base) or 1 (target) -- see WaterProfileAdjustmentTool::setRecipe
+         // in Brewtarget 5.1.x -- so we do the same.  (Note that wtype used to default to 0, so a recipe's only water
+         // will often be treated as its base water, which is also what Brewtarget 5.1.x did.)
+         //
+         {QString("UPDATE recipe SET water_base = ("
+                     "SELECT wir.water_id FROM water_in_recipe AS wir, water AS w "
+                     "WHERE wir.recipe_id = recipe.id AND wir.water_id = w.id AND w.wtype = 0 AND wir.deleted = ? "
+                     "ORDER BY wir.id DESC LIMIT 1"
+                  ")"), {QVariant{false}}},
+         {QString("UPDATE recipe SET water_target = ("
+                     "SELECT wir.water_id FROM water_in_recipe AS wir, water AS w "
+                     "WHERE wir.recipe_id = recipe.id AND wir.water_id = w.id AND w.wtype = 1 AND wir.deleted = ? "
+                     "ORDER BY wir.id DESC LIMIT 1"
+                  ")"), {QVariant{false}}},
+         //
+         // Similarly, the water tool stored the proportions of RO water in the mash and sparge on the base water.
+         // Despite the property names (mashRo_pct, spargeRo_pct), these were stored as fractions (0 to 1) rather than
+         // percentages.
+         //
+         {QString("UPDATE recipe SET ro_water_mash_pct = ("
+                     "SELECT 100.0 * w.mash_ro FROM water AS w WHERE w.id = recipe.water_base"
+                  ") WHERE water_base IS NOT NULL")},
+         {QString("UPDATE recipe SET ro_water_sparge_pct = ("
+                     "SELECT 100.0 * w.sparge_ro FROM water AS w WHERE w.id = recipe.water_base"
+                  ") WHERE water_base IS NOT NULL")},
+         {QString("ALTER TABLE water DROP COLUMN mash_ro")},
+         {QString("ALTER TABLE water DROP COLUMN sparge_ro")},
+         {QString("ALTER TABLE water DROP COLUMN wtype")},
 
          //
          // I never did get to the bottom of how to make use of BeerJSON's RecipeType.ingredients.water_additions.  As
@@ -3371,7 +3409,71 @@ namespace {
          // change the calculated FG of users' existing recipes; they can set the field themselves in the editor.
          //
          {QString("UPDATE fermentable SET fermentable_fraction_pct = 0 WHERE LOWER(name) LIKE '%lactose%'")},
+
+         //
+         // New field for the volume of liquid in the mash tun that is outside the grain bed (eg below a false bottom or
+         // malt pipe) and which, unlike mash_tun_loss_l, is recovered with the wort.  See comments in model/Equipment.h.
+         // We don't have a reliable way to tell, for an existing equipment record, how much (if any) of its mash tun
+         // loss is actually recoverable, so we start everything at 0, which means calculations are unchanged until the
+         // user sets a value.
+         //
+         {QString("ALTER TABLE equipment ADD COLUMN foundation_volume_l %1").arg(db.getDbNativeTypeName<double>())},
+         {QString("UPDATE equipment SET foundation_volume_l = 0")},
+         //
+         // Grain absorption applies to whichever vessel the mash happens in (which, if there is no mash tun, is the
+         // kettle), so it is no longer named as an attribute of the mash tun.
+         //
+         {QString("ALTER TABLE equipment RENAME COLUMN mash_tun_grain_absorption_lkg TO grain_absorption_lkg")},
+         //
+         // Previously, kettle_boil_size_l and fv_batch_size_l were used both for the default pre-boil volume and batch
+         // size (as in BeerXML's BOIL_SIZE and BATCH_SIZE) and for the capacities of the kettle and fermentation
+         // vessel (as in BeerJSON's maximum_volume).  We now have separate fields for the capacities.  For existing
+         // records, we don't know the capacities, but the vessels must be at least as big as the default volumes, so
+         // that's our best starting point.  (Users can correct them in the equipment editor.)
+         //
+         {QString("ALTER TABLE equipment ADD COLUMN kettle_volume_l %1").arg(db.getDbNativeTypeName<double>())},
+         {QString("UPDATE equipment SET kettle_volume_l = kettle_boil_size_l")},
+         {QString("ALTER TABLE equipment ADD COLUMN fv_volume_l %1").arg(db.getDbNativeTypeName<double>())},
+         {QString("UPDATE equipment SET fv_volume_l = fv_batch_size_l")},
+         //
+         // The Mash default constructor used to set the tun temperature to 0°C rather than "not set".  Since nobody
+         // mashes in a tun at freezing point, we can safely treat 0 as "not set", which means calculations will
+         // assume the tun starts at the same temperature as the grain.  (Otherwise, where there is a mash tun weight and
+         // specific heat, the strike water temperature would be calculated as though the tun had to be heated up from
+         // 0°C.)
+         //
+         {QString("UPDATE mash SET tun_temp = NULL WHERE tun_temp = 0")},
+         //
+         // Whilst we're at it, we rename a couple of columns to make the meaning clearer
+         //
+         {QString("ALTER TABLE mash RENAME COLUMN tun_temp          TO initial_tun_temp_c"     )},
+         {QString("ALTER TABLE mash RENAME COLUMN tun_weight        TO tun_weight_kg"          )},
+         {QString("ALTER TABLE mash RENAME COLUMN tun_specific_heat TO tun_specific_heat_calgc")},
+         //
+         // Cell count (in billions) need not be a whole number (eg 2.5 billion cells), and is not required to be one in
+         // dotBeer, so we change the column from integer to double.  There isn't a common syntax for changing a
+         // column's type in SQLite and PostgreSQL, so we make a new column, copy the data across, and then replace
+         // the old column with the new one.
+         //
+         {QString("ALTER TABLE yeast_in_recipe ADD COLUMN cell_count_billions_tmp %1").arg(db.getDbNativeTypeName<double>())},
+         {QString("UPDATE yeast_in_recipe SET cell_count_billions_tmp = cell_count_billions")},
+         {QString("ALTER TABLE yeast_in_recipe DROP COLUMN cell_count_billions")},
+         {QString("ALTER TABLE yeast_in_recipe RENAME COLUMN cell_count_billions_tmp TO cell_count_billions")},
       };
+
+      //
+      // Now we drop the equipment columns that we stopped using in an earlier release.  These columns only exist in
+      // databases that were upgraded from an older schema.  A database that was created from scratch (by
+      // DatabaseSchemaHelper::create, which makes tables from the ObjectStore definitions rather than by running the
+      // migrations) never had them, and trying to drop a non-existent column is an error that would make the whole
+      // migration fail.  SQLite does not support DROP COLUMN IF EXISTS, so we have to check ourselves.
+      //
+      QSqlRecord const equipmentColumns = q.driver()->record("equipment");
+      for (char const * const columnName : {"boil_time", "calc_boil_volume"}) {
+         if (equipmentColumns.contains(columnName)) {
+            migrationQueries.append({QString("ALTER TABLE equipment DROP COLUMN %1").arg(columnName)});
+         }
+      }
 
       return executeSqlQueries(q, migrationQueries);
    }

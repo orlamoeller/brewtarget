@@ -18,7 +18,9 @@
 #include <cstdlib>
 
 // We could just include <boost/json.hpp> which pulls all the Boost.JSON headers in, but that seems overkill
+#include <boost/json/array.hpp>
 #include <boost/json/kind.hpp>
+#include <boost/json/object.hpp>
 #include <boost/json/parse_options.hpp>
 #include <boost/json/parse.hpp>
 #include <boost/json/string.hpp>
@@ -637,7 +639,7 @@ namespace {
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "start_temperature", PropertyNames::    StepBase::startTemp_c    , &BEER_JSON_TEMPERATURE_UNIT_MAPPER},
          {JsonRecordDefinition::FieldType::MeasurementWithUnits,   "end_temperature", PropertyNames::        Step::  endTemp_c    , &BEER_JSON_TEMPERATURE_UNIT_MAPPER},
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "step_time"        , PropertyNames::StepBase::stepTime_mins      , &BEER_JSON_TIME_UNIT_MAPPER       },
-         {JsonRecordDefinition::FieldType::Bool                , "free_rise  "      , PropertyNames::FermentationStep::freeRise   },
+         {JsonRecordDefinition::FieldType::Bool                , "free_rise"        , PropertyNames::FermentationStep::freeRise   },
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "start_gravity"    , PropertyNames::StepExtended::startGravity_sg,  &BEER_JSON_DENSITY_UNIT_MAPPER   },
          {JsonRecordDefinition::FieldType::MeasurementWithUnits,   "end_gravity"    , PropertyNames::StepExtended::  endGravity_sg,  &BEER_JSON_DENSITY_UNIT_MAPPER   },
          {JsonRecordDefinition::FieldType::SingleUnitValue     , "start_ph"         , PropertyNames::Step::startAcidity_pH        ,  &BEER_JSON_ACIDITY_UNIT          },
@@ -687,8 +689,34 @@ namespace {
          //     we read a BeerJSON file.
          //
 
-         // TODO PropertyNames::Equipment::kettleInternalDiameter_cm
-         //      PropertyNames::Equipment::kettleOpeningDiameter_cm
+         //
+         // BeerJSON has no equivalent of PropertyNames::Equipment::foundationVolume_l (the volume below a false
+         // bottom or malt pipe that has to be filled before the grain is covered, but which drains out with the wort --
+         // see comments in model/Equipment.h).  The only volume BeerJSON records for a vessel, apart from its maximum,
+         // is "loss", which means wort that is NOT recovered.  So we cannot write it as part of the mash tun's loss
+         // without changing the meaning of the data.  Instead, we do not write it at all, which means that:
+         //   - Exporting to BeerJSON and reading the file back in will give a foundation volume of 0.
+         //   - Total water, and the wort that reaches the boil, will be calculated correctly from the BeerJSON data.
+         //   - However, strike water will be calculated as if there were no space below the false bottom / malt pipe,
+         //     so the mash will be thicker than intended (or, equivalently, the brewer needs to add the foundation
+         //     volume to the strike water by hand and take it off the sparge water).
+         // (Equally, other programs reading the file will not be able to know about the foundation volume, but most of
+         // them would not use it anyway.)  To keep the field, use dotBeer (or, with Brewken/Brewtarget, BeerXML, where
+         // we write it as an extension tag).
+         //
+         // Similarly, BeerJSON's "maximum_volume" is the capacity of a vessel (kettleVolume_l, fvVolume_l etc).
+         // BeerJSON has nowhere to record the default batch size (fvBatchSize_l) or pre-boil volume
+         // (kettleBoilSize_l) that a new recipe using this equipment should start with, so these are lost on export.
+         // On import, we use the fermenter capacity as the default batch size (which is what we used to do, when we
+         // treated the two as the same thing) and calculate a default pre-boil volume from it -- see the Equipment
+         // NamedParameterBundle constructor.
+         //
+         // In BeerJSON, grain_absorption_rate is on the individual vessels, and we read and write it on the "Mash Tun".
+         // Internally (as in dotBeer), we don't require a separate mash tun -- if there isn't one, the mash happens in
+         // the kettle (see Equipment::mashesInKettle).  But, because BeerJSON has nowhere else for grain absorption, we
+         // still write a "Mash Tun" item in this case, with a maximum_volume of 0.  (When we read it back in, a mash tun
+         // of 0 volume means, as before, that there is no separate mash tun.)
+         //
 
          // Type                                                 XPath / Q_PROPERTY / Value Decoder
          {JsonRecordDefinition::FieldType::String              , "name"                                               ,
@@ -729,7 +757,7 @@ namespace {
                                                                  PropertyNames::Equipment::mashTunLoss_l              ,
                                                                  &BEER_JSON_VOLUME_UNIT_MAPPER                        },
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "equipment_items[form=\"Mash Tun\"]/grain_absorption_rate",
-                                                                 PropertyNames::Equipment::mashTunGrainAbsorption_LKg      ,
+                                                                 PropertyNames::Equipment::grainAbsorption_LKg             ,
                                                                  &BEER_JSON_SPECIFIC_VOLUME_UNIT_MAPPER                    },
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "equipment_items[form=\"Mash Tun\"]/boil_rate_per_hour"   ,
                                                                  BtString::NULL_STR                                        ,
@@ -775,7 +803,7 @@ namespace {
          {JsonRecordDefinition::FieldType::String              , "equipment_items[form=\"Brew Kettle\"]/type"                ,
                                                                  PropertyNames::Equipment::kettleType                        },
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "equipment_items[form=\"Brew Kettle\"]/maximum_volume"      ,
-                                                                 PropertyNames::Equipment::kettleBoilSize_l                  ,
+                                                                 PropertyNames::Equipment::kettleVolume_l                    ,
                                                                  &BEER_JSON_VOLUME_UNIT_MAPPER                               },
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "equipment_items[form=\"Brew Kettle\"]/loss"                ,
                                                                  PropertyNames::Equipment::kettleTrubChillerLoss_l           ,
@@ -812,7 +840,7 @@ namespace {
          {JsonRecordDefinition::FieldType::String              , "equipment_items[form=\"Fermenter\"]/type"           ,
                                                                  PropertyNames::Equipment::fvType              },
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "equipment_items[form=\"Fermenter\"]/maximum_volume" ,
-                                                                 PropertyNames::Equipment::fvBatchSize_l       ,
+                                                                 PropertyNames::Equipment::fvVolume_l          ,
                                                                  &BEER_JSON_VOLUME_UNIT_MAPPER                        },
          {JsonRecordDefinition::FieldType::MeasurementWithUnits, "equipment_items[form=\"Fermenter\"]/loss"           ,
                                                                  PropertyNames::Equipment::fvLoss_l            ,
@@ -1244,6 +1272,54 @@ namespace {
       return BEER_JSON_1_CODING.validateLoadAndStoreInDb(targetFolderPath, inputDocument, userMessage);
    }
 
+   //
+   // Post-processing of the generated JSON for top-level records, for things that are required in BeerJSON but which
+   // we can't easily express in the JsonRecordDefinition (see DotBeer.cpp for the dotBeer equivalent).  Default does
+   // nothing.
+   //
+   template<class NE> void tidyJson([[maybe_unused]] boost::json::array & outputArray) {
+      return;
+   }
+
+   //
+   // A BeerJSON fermentable must have a yield object, with at least one of fine_grind, coarse_grind,
+   // fine_coarse_difference and potential.  All of these are optional for us, and, eg, a fermentable with a yield of 0
+   // (such as rice hulls) read in from BeerXML will have none of them set (because we treat BeerXML YIELD of 0 as "not
+   // set").  So, if there is no yield, we write a fine grind yield of 0, which is what
+   // Fermentable::effectiveFineGrindYield_pct and the calculations assume anyway.
+   //
+   template<> void tidyJson<Fermentable>(boost::json::array & outputArray) {
+      for (auto & fermentableValue : outputArray) {
+         auto & fermentable = fermentableValue.as_object();
+         auto const yield = fermentable.find("yield");
+         if (yield == fermentable.end() || !yield->value().is_object() || yield->value().as_object().empty()) {
+            qWarning() <<
+               Q_FUNC_INFO << "Fermentable" << fermentable.at("name").as_string().c_str() << "has no yield, so writing "
+               "fine grind yield of 0";
+            fermentable["yield"] = boost::json::object{
+               {"fine_grind", boost::json::object{{"unit", "%"}, {"value", 0.0}}}
+            };
+         }
+      }
+      return;
+   }
+
+   //
+   // BeerJSON ranges require both minimum and maximum, but we allow either to be unset (eg BeerXML's MIN_TEMPERATURE and
+   // MAX_TEMPERATURE on YEAST are each optional).  See JsonUtils::removeIncompleteRanges.
+   //
+   template<> void tidyJson<Yeast>(boost::json::array & outputArray) {
+      JsonUtils::removeIncompleteRanges(outputArray, {"temperature_range", "attenuation_range"});
+      return;
+   }
+
+   template<> void tidyJson<Style>(boost::json::array & outputArray) {
+      JsonUtils::removeIncompleteRanges(outputArray, {"original_gravity", "final_gravity",
+                                                      "international_bitterness_units", "color", "carbonation",
+                                                      "alcohol_by_volume"});
+      return;
+   }
+
 }
 
 
@@ -1332,6 +1408,7 @@ namespace BeerJson {
       boost::json::array outputArray;
       // BeerJSON doesn't support folder paths, so we just hard-code the first argument here, as it won't be used
       JsonRecord::listToJson(QString{""}, objectsToWrite, outputArray, BEER_JSON_1_CODING, BEER_JSON_RECORD_DEFN<NE>);
+      tidyJson<NE>(outputArray);
       this->pimpl->outputDocument["beerjson"].get_object()[*BEER_JSON_RECORD_DEFN<NE>.m_recordName] = outputArray;
       return;
    }

@@ -511,12 +511,8 @@ qtTestRunnerDependencies = dependency('qt6', version : minVersionOfQt, modules: 
 #    Boost.Core, part of collection of the Boost C++ Libraries, is a collection of core utilities used by other Boost
 #    libraries.  Boost JSON needs a more recent version than 1.71.
 #
-#    *******************
-#    *** Boost.Regex ***
-#    *******************
-#
-#    We use this header-only library to provide an alternative to std::regex for Valijson (see
-#    https://github.com/tristanpenman/valijson#regular-expression-engine).
+#    (We used to use Boost.Regex as an alternative to std::regex for Valijson, but we no longer use Valijson -- see
+#    "Sourcemeta Blaze" below.)
 #
 # For Boost, per https://mesonbuild.com/Dependencies.html#boost, we only need to supply module names for libraries we
 # need to link against.  For the header-only Boost libraries, the 'boost' dependency suffices.
@@ -1055,8 +1051,14 @@ applicationMainSourceFile = files([
 # Extra files we compile for unit testing
 #
 unitTestExtraSourceFiles = files([
-   'src/unitTests/Testing.cpp',
-   'src/unitTests/TestMultiVector.cpp'
+   'src/unitTests/CoreTests.cpp',
+   'src/unitTests/MeasurementTests.cpp',
+   'src/unitTests/RecipeCalcTests.cpp',
+   'src/unitTests/SerializationTests.cpp',
+   'src/unitTests/TestClassBase.cpp',
+   'src/unitTests/TestData.cpp',
+   'src/unitTests/TestEnvironment.cpp',
+   'src/unitTests/TestMain.cpp',
 ])
 
 #
@@ -1257,7 +1259,11 @@ mocHeaders = files([
 ])
 
 unitTestMocHeaders = files([
-   'src/unitTests/Testing.h'
+   'src/unitTests/CoreTests.h',
+   'src/unitTests/MeasurementTests.h',
+   'src/unitTests/RecipeCalcTests.h',
+   'src/unitTests/SerializationTests.h',
+   'src/unitTests/TestClassBase.h',
 ])
 
 #
@@ -1635,6 +1641,8 @@ exportedVariables = {
    # This is used by the Doxygen configuration file (see docs/Doxyfile.meson.in)
    'CONFIG_BUILD_DIR' : meson.project_build_root(),
 
+   # This is used by some of the unit tests for test data
+   'CONFIG_TEST_DATA_DIR' : join_paths(meson.current_source_dir(), 'testData')
 }
 
 # We need to set TargetDir in config.xml for the Qt IFW installer
@@ -1928,18 +1936,47 @@ testRunner = executable(testRunnerTargetName,
 #=======================================================================================================================
 #===================================================== Unit Tests ======================================================
 #=======================================================================================================================
-test('Test integer sizes'                  , testRunner, args : ['pstdintTest'                ])
-test('Test recipe calculations - all grain', testRunner, args : ['recipeCalcTest_allGrain'    ])
-test('Test post boil loss OG'              , testRunner, args : ['postBoilLossOgTest'         ])
-test('Test unit conversions'               , testRunner, args : ['testUnitConversions'        ])
-test('Test NamedParameterBundle'           , testRunner, args : ['testNamedParameterBundle'   ])
-test('Test number display and parsing'     , testRunner, args : ['testNumberDisplayAndParsing'])
-test('Test algorithms'                     , testRunner, args : ['testAlgorithms'             ])
-test('Test type lookups'                   , testRunner, args : ['testTypeLookups'            ])
-test('Test inventory'                      , testRunner, args : ['testInventory'              ])
-test('Test MultiVector'                    , testRunner, args : ['testMultiVector'            ])
+#
+# Each test is a separate run of the test runner, so gets its own fresh database etc.  The first argument to the test
+# runner is the test class; the second is the test function.  See comment in src/unitTests/TestRegistry.h for more
+# details.  Tests are grouped into suites, so you can run, eg, just the serialization tests with:
+#    meson test --suite serialization
+#
+test('Test integer sizes'                    , testRunner, args : ['CoreTests', 'pstdintTest'                                ], suite : 'core')
+test('Test NamedParameterBundle'             , testRunner, args : ['CoreTests', 'testNamedParameterBundle'                   ], suite : 'core')
+test('Test type lookups'                     , testRunner, args : ['CoreTests', 'testTypeLookups'                            ], suite : 'core')
+test('Test MultiVector'                      , testRunner, args : ['CoreTests', 'testMultiVector'                            ], suite : 'core')
 # Need a bit longer than the default 30 second timeout for the log rotation test on some platforms
-test('Test log rotation'                   , testRunner, args : ['testLogRotation'            ], timeout : 60)
+test('Test log rotation'                     , testRunner, args : ['CoreTests', 'testLogRotation'                            ], suite : 'core', timeout : 60)
+test('Test unit conversions'                 , testRunner, args : ['MeasurementTests', 'testUnitConversions'                 ], suite : 'measurement')
+test('Test unit inverses'                    , testRunner, args : ['MeasurementTests', 'testUnitInverses'                    ], suite : 'measurement')
+test('Test number display and parsing'       , testRunner, args : ['MeasurementTests', 'testNumberDisplayAndParsing'         ], suite : 'measurement')
+test('Test algorithms'                       , testRunner, args : ['MeasurementTests', 'testAlgorithms'                      ], suite : 'measurement')
+test('Test recipe calculations - all grain'  , testRunner, args : ['RecipeCalcTests', 'recipeCalcTest_allGrain'              ], suite : 'recipe')
+test('Test post boil loss OG'                , testRunner, args : ['RecipeCalcTests', 'postBoilLossOgTest'                   ], suite : 'recipe')
+test('Test boil addition timing'             , testRunner, args : ['RecipeCalcTests', 'testBoilAdditionTiming'               ], suite : 'recipe')
+test('Test boil steps without temperatures'  , testRunner, args : ['RecipeCalcTests', 'testBoilStepsWithoutTemperatures'     ], suite : 'recipe')
+test('Test inventory'                        , testRunner, args : ['RecipeCalcTests', 'testInventory'                        ], suite : 'recipe')
+test('Test mash water volumes'               , testRunner, args : ['RecipeCalcTests', 'testMashWaterVolumes'                 ], suite : 'recipe')
+test('Test evaporation rate'                 , testRunner, args : ['RecipeCalcTests', 'testEvaporationRate'                  ], suite : 'recipe')
+test('Test equipment default volumes'        , testRunner, args : ['RecipeCalcTests', 'testEquipmentDefaultVolumes'          ], suite : 'recipe')
+test('Test mash tun heat capacity'           , testRunner, args : ['RecipeCalcTests', 'testMashTunHeatCapacity'              ], suite : 'recipe')
+test('Test water alkalinity'                 , testRunner, args : ['RecipeCalcTests', 'testWaterAlkalinity'                  ], suite : 'recipe')
+test('Test dotBeer imported recipe calcs'    , testRunner, args : ['SerializationTests', 'testDotBeerImportedRecipeCalcs'    ], suite : 'serialization')
+test('Test dotBeer addition step correction' , testRunner, args : ['SerializationTests', 'testDotBeerAdditionStepCorrection' ], suite : 'serialization')
+test('Test brew log calcs'                   , testRunner, args : ['SerializationTests', 'testBrewLogCalcs'                  ], suite : 'serialization')
+test('Test dotBeer version handling'         , testRunner, args : ['SerializationTests', 'testDotBeerVersionHandling'        ], suite : 'serialization')
+test('Test dotBeer export'                   , testRunner, args : ['SerializationTests', 'testDotBeerExport'                 ], suite : 'serialization')
+test('Test clear unused optional vessels'    , testRunner, args : ['SerializationTests', 'testClearUnusedOptionalVessels'    ], suite : 'serialization')
+test('Test BeerXML null yield'               , testRunner, args : ['SerializationTests', 'testBeerXmlNullYield'              ], suite : 'serialization')
+test('Test NullSentinel'                     , testRunner, args : ['SerializationTests', 'testNullSentinel'                  ], suite : 'serialization')
+test('Test BeerJSON round trip'              , testRunner, args : ['SerializationTests', 'testBeerJsonRoundTrip'             ], suite : 'serialization')
+test('Test all-in-one equipment import'      , testRunner, args : ['SerializationTests', 'testAllInOneEquipmentImport'       ], suite : 'serialization')
+test('Test BeerXML foundation volume'        , testRunner, args : ['SerializationTests', 'testBeerXmlFoundationVolume'       ], suite : 'serialization')
+test('Test folder paths'                     , testRunner, args : ['SerializationTests', 'testFolderPaths'                   ], suite : 'serialization')
+test('Test equipment comparison'             , testRunner, args : ['SerializationTests', 'testEquipmentComparison'           ], suite : 'serialization')
+test('Test equipment volumes'                , testRunner, args : ['SerializationTests', 'testEquipmentVolumes'              ], suite : 'serialization')
+test('Test clear unused mash tun'            , testRunner, args : ['SerializationTests', 'testClearUnusedMashTun'            ], suite : 'serialization')
 
 #===
 

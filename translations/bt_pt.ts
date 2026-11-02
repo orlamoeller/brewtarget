@@ -271,10 +271,14 @@
     </message>
     <message>
         <source>Volume into fermenter</source>
-        <translation type="unfinished">Volume no Fermentador</translation>
+        <translation type="obsolete">Volume no Fermentador</translation>
     </message>
     <message>
         <source>unknown</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Volume into fermentor</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -358,7 +362,7 @@
     </message>
     <message>
         <source>Volume into fermenter</source>
-        <translation>Volume no Fermentador</translation>
+        <translation type="vanished">Volume no Fermentador</translation>
     </message>
     <message>
         <source>Print Document</source>
@@ -406,6 +410,10 @@
     </message>
     <message>
         <source>n/a</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Volume into fermentor</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -591,19 +599,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Projected Volume Into Fermentor</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Strike Temperature</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Volume Into Boil Kettle</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Volume Into Fermentor</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -632,6 +632,14 @@
     </message>
     <message>
         <source>Measured pre-boil specific gravity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Projected Volume Into Fermentation Vessel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Volume Into Fermentation Vessel</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -2836,22 +2844,6 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Fermenter Batch Size</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Fermenter Loss</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Fermenter Notes</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Fermenter Type</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>HLT Loss</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2940,10 +2932,6 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Mash Tun Grain Absorption</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Mash Tun Loss</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2993,11 +2981,47 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
     </message>
     <message>
         <source>Boil Size</source>
-        <translation type="unfinished">Tamanho da Fervura</translation>
+        <translation type="obsolete">Tamanho da Fervura</translation>
     </message>
     <message>
-        <source>Kettle Boil Size</source>
+        <source>Fermentor Loss</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fermentor Notes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fermentor Type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Default Batch Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fermentor Volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Default Pre-Boil Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Kettle Volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Foundation Volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Grain Absorption</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Batch Size</source>
+        <translation type="unfinished">Volume da batelada</translation>
     </message>
 </context>
 <context>
@@ -3175,14 +3199,6 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>mash tun volume (all-grain and BIAB only)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>batch size</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>hop utilization</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3236,6 +3252,38 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
     </message>
     <message>
         <source>Data Discard Warnings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>default batch size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Foundation water (%1) plus mash tun loss (%2) leaves no room for the mash in a mash tun with total capacity %3.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Foundation water (%1) leaves no room for the mash in the kettle (total capacity %2).  (As there is no separate mash tun, the mash happens in the kettle.)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The default pre-boil volume (%1) is more than the kettle can hold (%2).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The default batch size (%1) is more than the fermentor can hold (%2).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mash tun losses</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mash tun weight</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mash tun specific heat capacity</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -3466,6 +3514,10 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
     </message>
     <message>
         <source>Lactic Acid content (% weight)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fermentable by yeast (%)</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -4500,14 +4552,6 @@ Click &apos;OK&apos; to terminate %2 so you can upgrade to a newer version.
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Change Tun Weight</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Change Tun Specific Heat</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Change Batch Size</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4609,6 +4653,10 @@ If you need help, please open an issue at %1</source>
     </message>
     <message>
         <source>Brew Log for brew on %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Primary fermentation for %1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -5045,23 +5093,7 @@ If you need help, please open an issue at %1</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Calcium Chloride (CaCl₂)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Calcium Carbonate (CaCO₃)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Calcium Sulfate (CaSO₄)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Magnesium Sulfate (MgSO₄)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Sodium Chloride (NaCl)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5083,6 +5115,42 @@ If you need help, please open an issue at %1</source>
     <message>
         <source>Yes</source>
         <translation type="unfinished">Sim</translation>
+    </message>
+    <message>
+        <source>Anhydrous Calcium Chloride (CaCl₂)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Calcium Chloride Dihydrate (CaCl₂·2H₂O)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Gypsum (CaSO₄·2H₂O)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pickling Lime (Ca(OH)₂)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Epsom Salt (MgSO₄·7H₂O)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Magnesium Chloride Hexahydrate (MgCl₂·6H₂O)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Regular Salt (NaCl)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>sulfuric acid (H₂SO₄)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>hydrochloric acid (HCl)</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -6302,10 +6370,6 @@ Log file may contain more details.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Specific Volume</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Mass or Volume</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6797,6 +6861,70 @@ Log file may contain more details.</source>
         <source>%1 errors found in JSON file.  First error at %2: schema condition %3 is violated because &quot;%4&quot;</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Volume per Mass</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Energy per Volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>kcal/L</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>kcal/50cl</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>kcal/33cl</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>kcal/25cl</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>kcal/100ml</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>kcal/pt</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>kcal/12floz</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>kJ/100ml</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This file was written using version %1 of the dotBeer format, which is newer than the version this version of %2 supports (%3).  You may need a newer version of %2 to read it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Date-Time-With-Timezone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Date-or-Date-Time-Local</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local-ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mash step for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Primary fermentation for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>Recipe</name>
@@ -6818,7 +6946,7 @@ Log file may contain more details.</source>
     </message>
     <message>
         <source>Bring </source>
-        <translation>Produzir </translation>
+        <translation type="vanished">Produzir </translation>
     </message>
     <message>
         <source>%1 water to %2, </source>
@@ -6826,7 +6954,7 @@ Log file may contain more details.</source>
     </message>
     <message>
         <source>for upcoming infusions.</source>
-        <translation>para as próximas infusões.</translation>
+        <translation type="vanished">para as próximas infusões.</translation>
     </message>
     <message>
         <source>Add %1 water at %2 to mash to bring it to %3.</source>
@@ -6894,7 +7022,7 @@ Log file may contain more details.</source>
     </message>
     <message>
         <source>Do first wort hopping with </source>
-        <translation>Faça a primeira adição do lúpulo . </translation>
+        <translation type="vanished">Faça a primeira adição do lúpulo . </translation>
     </message>
     <message>
         <source>First wort hopping</source>
@@ -7339,10 +7467,6 @@ O volume final do fermentador primário é %1.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Put %1 %2 into fermenter%3.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source> for %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7364,10 +7488,6 @@ O volume final do fermentador primário é %1.</translation>
     </message>
     <message>
         <source>%1 addition</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source> to the mash tun.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7405,6 +7525,30 @@ O volume final do fermentador primário é %1.</translation>
     <message>
         <source>Target Water Profile ID</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Put %1 %2 into fermentor%3.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Primary fermentation for %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add %1 to the mash tun.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Bring %1 for upcoming infusions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Do first wort hopping with %1.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 water to %2</source>
+        <translation type="unfinished">%1 de água para %2  {1 ?} {2?}</translation>
     </message>
 </context>
 <context>
@@ -7553,6 +7697,10 @@ O volume final do fermentador primário é %1.</translation>
     <message>
         <source>Use</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Time</source>
+        <translation type="unfinished">Tempo</translation>
     </message>
 </context>
 <context>
@@ -10340,10 +10488,6 @@ O volume final do fermentador primário é %1.</translation>
         <translation type="unfinished">Configurar como Padrão</translation>
     </message>
     <message>
-        <source>Pre-boil Volume</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Batch Size</source>
         <translation type="obsolete">Volume da batelada</translation>
     </message>
@@ -10380,10 +10524,6 @@ O volume final do fermentador primário é %1.</translation>
         <translation type="obsolete">Água adicionada à panela</translation>
     </message>
     <message>
-        <source>Kettle to Fermenter Loss</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Default Absorption</source>
         <translation type="unfinished">Absorção padrão</translation>
     </message>
@@ -10397,7 +10537,7 @@ O volume final do fermentador primário é %1.</translation>
     </message>
     <message>
         <source>Volume of mash tun</source>
-        <translation type="unfinished">Volume da panela de mosturação</translation>
+        <translation type="obsolete">Volume da panela de mosturação</translation>
     </message>
     <message>
         <source>Notes</source>
@@ -10424,14 +10564,6 @@ O volume final do fermentador primário é %1.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Use a different name for each equipment profile.  If you brew different batch sizes on the same equipment, you need a separate equipment profile for each batch size.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Optional Vessels</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Hot Liquor Tank</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10445,10 +10577,6 @@ O volume final do fermentador primário é %1.</translation>
     </message>
     <message>
         <source>Packaging Vessel</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Attributes of &quot;optional&quot; vessels will not be saved if their volumes are set to 0.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10504,22 +10632,6 @@ O volume final do fermentador primário é %1.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>How much water is permanently lost to each unit of weight of grain during mashing. The default value is 1.0875 liters per kilogram. This can fluctuate due to the fine-ness of your grind, humidity, brand, and other factors. Pressing the &quot;Default Absorption&quot; button will reset the value to this default.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Other Mashing losses</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Mashing losses not included in grain absorption</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>If you do not have a separate lauter tun, then this should include the lautering deadspace.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Mash Tun Notes</source>
         <translation type="unfinished"></translation>
     </message>
@@ -10557,22 +10669,6 @@ O volume final do fermentador primário é %1.</translation>
     </message>
     <message>
         <source>Brew Kettle Notes</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Fermenter</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Fermenter Type</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>This is also known as the batch size.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Fermenter Notes</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -10617,6 +10713,123 @@ O volume final do fermentador primário é %1.</translation>
     </message>
     <message>
         <source>Adjustment factor for large batch hop utilization.  This value should be 100% for batches less than 20 gallons, but may be higher (200% or more) for very large batch equipment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Kettle to Fermentor Loss</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fermentor</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fermentor Type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fermentor Notes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Optional Vessel
+Tabs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use a different name for each equipment profile.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>These checkboxes control which vessel tabs are shown.  An asterisk after a vessel means it has a volume set, and so is used in calculations, even if its tab is hidden.  Attributes of &quot;optional&quot; vessels will not be saved if their volumes are left blank or set to 0.  If there is no mash tun, the mash happens in the boil kettle (as on all-in-one systems and for brew in a bag).  If there is no lauter tun, lautering happens wherever the mash happens.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Default Batch Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Volume into the fermentor that new recipes using this equipment start with</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Default Pre-boil Volume</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Volume in the kettle at the start of the boil that new recipes using this equipment start with</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The batch size (ie the volume going into the fermentor) and pre-boil volume that a recipe starts with when you choose this equipment for it.  These are not the capacities of the fermentor and kettle, which are set on their own tabs.  If you brew different batch sizes on the same equipment, you can either change the batch size in each recipe, or have a separate equipment profile for each batch size.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mash</source>
+        <translation type="unfinished">Mosto</translation>
+    </message>
+    <message>
+        <source>These settings apply to whichever vessel the mash happens in: the mash tun or, if you do not have a separate mash tun (eg on an all-in-one system such as the Grainfather, or for brew in a bag), the boil kettle.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Foundation Water (recovered)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Water below the false bottom or malt pipe that drains out with the wort</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The water that has to be below the false bottom (or malt pipe / basket) before the grain is covered, but which drains out with the wort and so is NOT lost.  (It is part of the Total Capacity of the mash tun or, if there is no mash tun, of the kettle.)  This is common in all-in-one systems -- eg about 3.5 liters for a Grainfather G30.  It is added to the strike water, so the mash thickness you choose applies just to the grain bed, and it is taken off the sparge water, so the total water needed does not change.  Leave at 0 if there is no such space (eg brew in a bag without a false bottom).  Other software calls this, eg, &quot;Mash-Tun Deadspace&quot; (Brewfather) or &quot;Mash Tun Addition&quot; (BeerSmith).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>How much water is permanently lost to each unit of weight of grain during mashing (ie the water the spent grain retains).  This is separate from Foundation Water and Mash Tun Loss, which are about the vessel rather than the grain.  (For an all-in-one system, anything that does not drain from the malt pipe should be included here.)  The default value is about 1.085 liters per kilogram (0.13 US gallons per pound), which is typical for a conventional mash tun.  For an all-in-one system with a malt pipe, about 0.8 liters per kilogram is more typical, and for brew in a bag with the bag squeezed, about 0.66 liters per kilogram.  It can fluctuate due to the fineness of your grind, how well the grain is drained, the malt, and other factors.  Pressing the &quot;Default Absorption&quot; button will reset the value to the default.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Total Capacity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Total usable capacity of the mash tun, including any space below the false bottom or malt pipe</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The most the mash tun can hold, including any space below the false bottom (or malt pipe / basket) and anything that stays behind in the vessel.  The space actually available for the grain and its strike water is this volume less the Foundation Water (on the Mash tab) and Mash Tun Loss below.  If you do not have a separate mash tun -- eg on an all-in-one system such as the Grainfather, or for brew in a bag -- leave this blank (and untick Mash Tun on the General tab): the mash then happens in the boil kettle.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mash Tun Loss (not recovered)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Liquid that stays behind in the mash tun and is never recovered</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Liquid that stays behind in the mash tun (eg below the outlet or in pipework) and never reaches the boil.  It is added to the strike water and to the total water needed.  Do not include grain absorption or anything that drains out with the wort (put those under Grain Absorption and Foundation Water on the Mash tab).  If you do not have a separate lauter tun, include your lautering losses here.  If you do have a separate lauter tun, its losses go on the Lauter Tun tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lauter Tun Loss (not recovered)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wort that stays behind in the lauter tun and is never recovered</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wort that stays behind in the lauter tun and its plumbing, and never reaches the boil.  This is only used if you have a separate lauter tun (ie the lauter tun has a volume set).  Otherwise, include lautering losses in the Mash Tun Loss on the Mash Tun tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The most the kettle can hold (not the pre-boil volume, which is on the General tab).  If there is no separate mash tun, this is also the space available for the mash.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The most the fermentor can hold, including headspace.  This is NOT the batch size, which is set on the General tab (as Default Batch Size).</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -10964,6 +11177,14 @@ O volume final do fermentador primário é %1.</translation>
     </message>
     <message>
         <source>For aciduated malts (aka acid malts)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>% Fermentable by yeast</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Percentage of this ingredient&apos;s extract that brewing yeast can ferment.  Leave blank for 100%.  Set to 0 for lactose, or about 10 for maltodextrin.  Not normally needed for malts.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -11380,14 +11601,6 @@ O volume final do fermentador primário é %1.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Pinene %</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Pinene</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Farnesene %</source>
         <translation type="unfinished"></translation>
     </message>
@@ -11501,6 +11714,14 @@ O volume final do fermentador primário é %1.</translation>
     </message>
     <message>
         <source>6 Month Alpha Loss</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>α-Pinene %</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>α-Pinene</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -12498,10 +12719,6 @@ O volume final do fermentador primário é %1.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Initial temperature of the mash tun.  Used in the Mash Wizard and the Mash Designer.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Used in the Mash Wizard.  It is better to set this on the sparge step itself.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -12510,7 +12727,11 @@ O volume final do fermentador primário é %1.</translation>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>It is better to set this directly on the Equipment.</source>
+        <source>Initial temperature of the mash tun.  Used in the Mash Wizard and the Mash Designer, when calculating strike water temperature, to allow for the strike water heating up the mash tun.  If left blank, the tun is assumed to be at the same temperature as the grain.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It is better to set this on the Equipment (Mash Tun tab).  This value is only used if the recipe&apos;s equipment has a mash tun with no weight and specific heat set.  It is ignored if the equipment has no separate mash tun (ie the mash happens in the kettle), because the strike water is then heated in the same vessel as the mash.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
