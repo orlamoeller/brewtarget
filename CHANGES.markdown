@@ -14,6 +14,44 @@ happens, so I'm now setting it to a slightly arbitrary time early in the morning
 * Shopping Lists
 * We'll list other new features here...
 
+## v5.2.3
+More bug fixes
+
+### New Features
+None
+
+### Bug Fixes
+* Fixed a regression in 5.2.2 that had the program looking in the wrong place for its config
+* Second attempt at fixing "v5.2.0 not working on some older hardware" [1179](https://github.com/Brewtarget/brewtarget/issues/1179)
+
+### Release Timestamp
+Thu, 5 Nov 2026 05:02:03 +0100
+
+## v5.2.2
+Fix some key bugs in 5.2.0 release.  Start of work on improving decimal place handling.
+
+### New Features
+* Enhancement - allow per-field selection of displayed decimal places [1098](https://github.com/Brewtarget/brewtarget/issues/1098)
+
+### Bug Fixes
+* v5.2.0 not working on some older hardware [1179](https://github.com/Brewtarget/brewtarget/issues/1179)
+* "Error Loading Data" and Recipe UI issue on 5.2.0 [1180](https://github.com/Brewtarget/brewtarget/issues/1180)
+
+### Release Timestamp
+Wed, 4 Nov 2026 05:02:02 +0100
+
+## v5.2.1
+Fix Mac packaging
+
+### New Features
+None
+
+### Bug Fixes
+* macOS release bundles fail to launch on clean Apple Silicon systems [1176](https://github.com/Brewtarget/brewtarget/issues/1176)
+
+### Release Timestamp
+Mon, 2 Nov 2026 05:02:01 +0100
+
 ## v5.2.0
 Various improvements, including:
 * Migrate to new XML libraries (libxml2 replaces Xerces and Xalan) [1131](https://github.com/Brewtarget/brewtarget/issues/1131)

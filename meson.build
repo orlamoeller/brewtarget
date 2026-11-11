@@ -189,7 +189,7 @@
 #
 #
 project('brewtarget', 'cpp',
-        version: '5.2.0',
+        version: '5.2.3',
         license: 'GPL-3.0-or-later',
         meson_version: '>=0.63.0',
         default_options : ['cpp_std=c++23',
@@ -369,6 +369,24 @@ if compiler.get_id() == 'gcc'
       add_global_arguments     ('-rdynamic', language : 'cpp')
       add_global_link_arguments('-rdynamic', language : 'cpp')
    endif
+endif
+
+#
+# On x86-64, we want to be explicit that we are building for the baseline instruction set (ie the original AMD64 spec,
+# sometimes called x86-64-v1), so that the resulting binaries run on older CPUs.  Otherwise, we are at the mercy of
+# whatever the compiler's default target is on the build machine.  Eg, the GitHub ubuntu-26.04 runner image is an
+# amd64v3 install whose toolchain targets x86-64-v3 (AVX2, BMI2, FMA, etc), and binaries built there fail on
+# pre-Haswell CPUs with "CPU ISA level is lower than required".  See https://github.com/Brewtarget/brewtarget/issues/1179
+#
+# We need the flags at link time as well as compile time because, with LTO, code generation happens at the link step.
+#
+# Note that this does not protect against pre-compiled objects that we link in from the build system (eg static
+# libraries or C runtime objects) having been built for a higher ISA level, which is why we also check the packaged
+# binaries in CI.
+#
+if host_machine.cpu_family() == 'x86_64' and compiler.get_id() in ['gcc', 'clang']
+   add_global_arguments     (['-march=x86-64', '-mtune=generic'], language : 'cpp')
+   add_global_link_arguments(['-march=x86-64', '-mtune=generic'], language : 'cpp')
 endif
 
 if host_machine.system() == 'darwin'
@@ -642,7 +660,9 @@ message('OpenSSL Library:', openSslDependency.name(), 'found =', openSslDependen
 #
 # We periodically need to run the following, to update to the latest version of Blaze:
 #
-#    git submodule update --remote
+#    git submodule update --remote third-party/blaze
+#    git add third-party/blaze
+#    git commit -m "Update Blaze submodule"
 #
 # In order for Meson to find Blaze as a dependency, we need to "outsource" things to CMake's `find_package()` command
 # (via the `method : 'cmake'` option on Meson's `dependency()` command).  This is a bit fiddly because Blaze consists of
