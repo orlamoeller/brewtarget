@@ -140,6 +140,13 @@ namespace {
       return sorted;
    }
 
+   QList<std::shared_ptr<RecipeAdditionMisc>> sortMiscAdditionsByTime(Recipe * rec) {
+      QList<std::shared_ptr<RecipeAdditionMisc>> sorted = rec->miscAdditions();
+
+      std::sort(sorted.begin(), sorted.end(), RecipeAddition::lessThanByTime<RecipeAdditionMisc>);
+      return sorted;
+   }
+
    QList<std::shared_ptr<RecipeAdditionFermentable>> sortFermentableAdditionsByWeight(Recipe* rec) {
       QList<std::shared_ptr<RecipeAdditionFermentable>> sorted = rec->fermentableAdditions();
 
@@ -312,7 +319,7 @@ public:
       body += QString("<td width=\"40%\" align=\"right\" class=\"right\">%1</td>"
                      "<td class=\"value\">%2</td>"
                      "</tr>")
-            .arg(tr("Boil Size"))
+            .arg(tr("Pre-Boil Size"))
             .arg(Measurement::displayAmount(Measurement::Amount{rec->boilVolume_l(), Measurement::Units::liters}));
       // Second row: Boil Time and Efficiency
       body += QString("<tr>"
@@ -385,7 +392,7 @@ public:
       entry.append(tr("Batch Size"));
       value.append(QString("%1").arg(Measurement::displayAmount(Measurement::Amount{rec->finalVolume_l(),
                                                                                     Measurement::Units::liters})));
-      entry.append(tr("Boil Size"));
+      entry.append(tr("Pre-Boil Size"));
       value.append(QString("%1").arg(Measurement::displayAmount(Measurement::Amount{rec->boilVolume_l(),
                                                                                     Measurement::Units::liters})));
       entry.append(tr("Boil Time"));
@@ -634,7 +641,7 @@ public:
          return "";
       }
 
-      auto miscAdditions = this->rec->miscAdditions();
+      auto miscAdditions = sortMiscAdditionsByTime(this->rec);
       int size = miscAdditions.size();
       if ( size < 1 ) {
          return "";
@@ -680,7 +687,7 @@ public:
       }
       QString ret = "";
 
-      auto miscAdditions = this->rec->miscAdditions();
+      auto miscAdditions = sortMiscAdditionsByTime(this->rec);
       int size = miscAdditions.size();
       if( size > 0 ) {
          QStringList names, types, uses, amounts, times;

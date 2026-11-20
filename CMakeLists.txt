@@ -119,7 +119,7 @@ endif()
 #=======================================================================================================================
 # It's simplest to keep the project name all lower-case as it means we can use a lot more of the default settings for
 # Linux packaging (where directory names etc are expected to be all lower-case).
-project(brewtarget VERSION 5.3.0 LANGUAGES CXX)
+project(brewtarget VERSION 5.3.2 LANGUAGES CXX)
 message(STATUS "Building ${PROJECT_NAME} version ${PROJECT_VERSION} with CMake ${CMAKE_VERSION}")
 message(STATUS "PROJECT_SOURCE_DIR is ${PROJECT_SOURCE_DIR}")
 
@@ -747,8 +747,9 @@ if(WIN32)
    # Find extra MinGW-specific dlls.
    if(MINGW)
       if(NOT MINGW_BIN_DIR)
-         # Yes, it's mingw32-make.exe even on 64-bit systems
-         FIND_PATH(MINGW_BIN_DIR "mingw32-make.exe")
+         # The easiest way to find the MinGW bin dir is from the fact that we know the compiler lives there, and CMake
+         # already knows where that is.
+         get_filename_component(MINGW_BIN_DIR ${CMAKE_CXX_COMPILER} DIRECTORY)
       endif()
       if(NOT EXISTS ${MINGW_BIN_DIR})
          message(FATAL_ERROR "MinGW bin dir not found. Run cmake again with the option -DMINGW_BIN_DIR=c:/path/to/mingw/bin")
@@ -1140,6 +1141,9 @@ add_test(NAME MashAutoAdjusterTests.testRoundedValues               COMMAND ./${
 add_test(NAME MashAutoAdjusterTests.testWithRecipe                  COMMAND ./${fileName_unitTestRunner} MashAutoAdjusterTests testWithRecipe                 )
 add_test(NAME MashAutoAdjusterTests.testExampleProfiles             COMMAND ./${fileName_unitTestRunner} MashAutoAdjusterTests testExampleProfiles            )
 add_test(NAME MashAutoAdjusterTests.testAutoAdjust                  COMMAND ./${fileName_unitTestRunner} MashAutoAdjusterTests testAutoAdjust                 )
+add_test(NAME MashAutoAdjusterTests.testVolumes                     COMMAND ./${fileName_unitTestRunner} MashAutoAdjusterTests testVolumes                    )
+add_test(NAME MashAutoAdjusterTests.testAffectsAdjustment           COMMAND ./${fileName_unitTestRunner} MashAutoAdjusterTests testAffectsAdjustment          )
+add_test(NAME MashAutoAdjusterTests.testStepChangesAutoAdjust       COMMAND ./${fileName_unitTestRunner} MashAutoAdjusterTests testStepChangesAutoAdjust      )
 add_test(NAME MashAutoAdjusterTests.testUndo                        COMMAND ./${fileName_unitTestRunner} MashAutoAdjusterTests testUndo                       )
 add_test(NAME MashFermentabilityTests.testReproducesPaper           COMMAND ./${fileName_unitTestRunner} MashFermentabilityTests testReproducesPaper          )
 add_test(NAME MashFermentabilityTests.testTemperatureAndTime        COMMAND ./${fileName_unitTestRunner} MashFermentabilityTests testTemperatureAndTime       )
@@ -1157,7 +1161,10 @@ add_test(NAME RecipeCalcTests.recipeCalcTest_allGrain               COMMAND ./${
 add_test(NAME RecipeCalcTests.postBoilLossOgTest                    COMMAND ./${fileName_unitTestRunner} RecipeCalcTests postBoilLossOgTest                   )
 add_test(NAME RecipeCalcTests.testBoilAdditionTiming                COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testBoilAdditionTiming               )
 add_test(NAME RecipeCalcTests.testBoilStepsWithoutTemperatures      COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testBoilStepsWithoutTemperatures     )
+add_test(NAME RecipeCalcTests.testBoilStepPhases                    COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testBoilStepPhases                   )
+add_test(NAME RecipeCalcTests.testBoilChangesRecalculate            COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testBoilChangesRecalculate           )
 add_test(NAME RecipeCalcTests.testPostBoilIbus                      COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testPostBoilIbus                     )
+add_test(NAME RecipeCalcTests.testPostBoilRampTime                  COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testPostBoilRampTime                 )
 add_test(NAME RecipeCalcTests.testIbuFormulas                       COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testIbuFormulas                      )
 add_test(NAME RecipeCalcTests.testInventory                         COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testInventory                        )
 add_test(NAME RecipeCalcTests.testMashWaterVolumes                  COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testMashWaterVolumes                 )
@@ -1165,6 +1172,9 @@ add_test(NAME RecipeCalcTests.testEvaporationRate                   COMMAND ./${
 add_test(NAME RecipeCalcTests.testEquipmentDefaultVolumes           COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testEquipmentDefaultVolumes          )
 add_test(NAME RecipeCalcTests.testMashTunHeatCapacity               COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testMashTunHeatCapacity              )
 add_test(NAME RecipeCalcTests.testWaterAlkalinity                   COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testWaterAlkalinity                  )
+add_test(NAME RecipeCalcTests.testLateFermentableAdditions          COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testLateFermentableAdditions         )
+add_test(NAME RecipeCalcTests.testTimeWeightedBoilGravity           COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testTimeWeightedBoilGravity          )
+add_test(NAME RecipeCalcTests.testRecipeSnapshot                    COMMAND ./${fileName_unitTestRunner} RecipeCalcTests testRecipeSnapshot                   )
 add_test(NAME SerializationTests.testDotBeerImportedRecipeCalcs     COMMAND ./${fileName_unitTestRunner} SerializationTests testDotBeerImportedRecipeCalcs    )
 add_test(NAME SerializationTests.testDotBeerAdditionStepCorrection  COMMAND ./${fileName_unitTestRunner} SerializationTests testDotBeerAdditionStepCorrection )
 add_test(NAME SerializationTests.testBrewLogCalcs                   COMMAND ./${fileName_unitTestRunner} SerializationTests testBrewLogCalcs                  )

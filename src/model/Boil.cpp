@@ -16,6 +16,7 @@
 #include "model/Boil.h"
 
 #include <algorithm>
+#include <limits>
 
 #include "database/ObjectStoreWrapper.h"
 #include "model/Fermentation.h"
@@ -124,23 +125,86 @@ QString               Boil::description  () const { return this->m_description  
 QString               Boil::notes        () const { return this->m_notes        ; }
 std::optional<double> Boil::preBoilSize_l() const { return this->m_preBoilSize_l; }
 
+namespace {
+   //
+   // Per dotBeer, an unset boil step temperature means "at boiling", which is no lower than any other temperature in
+   // the boil.  For the purposes of comparing temperatures with each other (and with Boil::minimumBoilTemperature_c),
+   // we therefore treat an unset temperature as +∞.  (Note that we must not use this value for anything other than
+   // comparisons!)
+   //
+   double constexpr atBoilingForComparison = std::numeric_limits<double>::infinity();
+
+   double startTempForComparison(BoilStep const & boilStep) {
+      return boilStep.startTemp_c().value_or(atBoilingForComparison);
+   }
+
+   double endTempForComparison(BoilStep const & boilStep) {
+      return boilStep.endTemp_c().value_or(atBoilingForComparison);
+   }
+}
+
 bool Boil::startsAtBoil(BoilStep const & boilStep) {
-   return boilStep.startTemp_c().value_or(100.0) > Boil::minimumBoilTemperature_c;
+   return startTempForComparison(boilStep) >= Boil::minimumBoilTemperature_c;
 }
 
 bool Boil::endsAtBoil(BoilStep const & boilStep) {
-   return boilStep.endTemp_c().value_or(100.0) > Boil::minimumBoilTemperature_c;
+   return endTempForComparison(boilStep) >= Boil::minimumBoilTemperature_c;
 }
 
-bool Boil::isBoilProper(BoilStep const & boilStep) {
-   return Boil::startsAtBoil(boilStep) && Boil::endsAtBoil(boilStep);
+bool Boil::holdsAtBoil(BoilStep const & boilStep) {
+   return Boil::startsAtBoil(boilStep) &&
+          Boil::endsAtBoil(boilStep) &&
+          endTempForComparison(boilStep) >= startTempForComparison(boilStep);
+}
+
+std::vector<Boil::StepPhase> Boil::stepPhases(QList<std::shared_ptr<BoilStep>> const & boilSteps) {
+   std::vector<Boil::StepPhase> phases;
+   phases.reserve(boilSteps.size());
+
+   Boil::StepPhase currentPhase = Boil::StepPhase::PreBoil;
+   BoilStep const * previousStep = nullptr;
+   for (auto const & boilStep : boilSteps) {
+      switch (currentPhase) {
+         case Boil::StepPhase::PreBoil:
+            if (Boil::holdsAtBoil(*boilStep)) {
+               currentPhase = Boil::StepPhase::BoilProper;
+            }
+            break;
+         case Boil::StepPhase::BoilProper:
+            //
+            // The boil proper ends as soon as the wort starts to cool, either during a step (in which case
+            // holdsAtBoil() will be false) or between steps.  Note that previousStep cannot be null here, as we can
+            // only be in the boil proper after we have looked at at least one step.
+            //
+            Q_ASSERT(previousStep);
+            if (!Boil::holdsAtBoil(*boilStep) ||
+                startTempForComparison(*boilStep) < endTempForComparison(*previousStep)) {
+               currentPhase = Boil::StepPhase::PostBoil;
+            }
+            break;
+         case Boil::StepPhase::PostBoil:
+            // Once we're in the post-boil, everything else is post-boil too
+            break;
+         // No default case as we want the compiler to warn us if we missed a case above
+      }
+      phases.push_back(currentPhase);
+      previousStep = boilStep.get();
+   }
+
+   return phases;
+}
+
+std::vector<Boil::StepPhase> Boil::stepPhases() const {
+   return Boil::stepPhases(this->steps());
 }
 
 double Boil::boilTime_mins() const {
    double boilTimeProper_mins = 0.0;
-   for (auto const & step : this->steps()) {
-      if (Boil::isBoilProper(*step) && step->stepTime_mins()) {
-          boilTimeProper_mins += *step->stepTime_mins();
+   auto const boilSteps = this->steps();
+   auto const phases = Boil::stepPhases(boilSteps);
+   for (int ii = 0; ii < static_cast<int>(boilSteps.size()); ++ii) {
+      if (phases[ii] == Boil::StepPhase::BoilProper && boilSteps[ii]->stepTime_mins()) {
+          boilTimeProper_mins += *boilSteps[ii]->stepTime_mins();
       }
    }
    return boilTimeProper_mins;
@@ -172,9 +236,11 @@ void Boil::setPreBoilSize_l(std::optional<double> const   val) { SET_AND_NOTIFY(
 //
 void Boil::setBoilTime_mins(double const val) {
    this->ensureStandardProfile();
-   for (auto step : this->steps()) {
-      if (Boil::isBoilProper(*step)) {
-         step->setStepTime_mins(val);
+   auto const boilSteps = this->steps();
+   auto const phases = Boil::stepPhases(boilSteps);
+   for (int ii = 0; ii < static_cast<int>(boilSteps.size()); ++ii) {
+      if (phases[ii] == Boil::StepPhase::BoilProper) {
+         boilSteps[ii]->setStepTime_mins(val);
          break;
       }
    }
@@ -227,12 +293,14 @@ void Boil::ensureStandardProfile() {
    }
 
    boilSteps = this->steps();
-   if (std::none_of(boilSteps.cbegin(), boilSteps.cend(), [](auto const & step) { return Boil::isBoilProper(*step); })) {
+   auto phases = Boil::stepPhases(boilSteps);
+   if (std::none_of(phases.cbegin(), phases.cend(), [](auto const phase) { return phase == Boil::StepPhase::BoilProper; })) {
       // We need to add a main (aka boil proper) step.  It goes before the first step that cools down from the boil, or
-      // at the end if there isn't one.  (Remember step numbers start from 1.)
+      // at the end if there isn't one.  (Remember step numbers start from 1.)  NB: A step that cools down from the
+      // boil might still end above Boil::minimumBoilTemperature_c (eg 100°C → 92°C for a hot whirlpool).
       int position = static_cast<int>(boilSteps.size()) + 1;
       for (int ii = 0; ii < static_cast<int>(boilSteps.size()); ++ii) {
-         if (Boil::startsAtBoil(*boilSteps[ii]) && !Boil::endsAtBoil(*boilSteps[ii])) {
+         if (Boil::startsAtBoil(*boilSteps[ii]) && !Boil::holdsAtBoil(*boilSteps[ii])) {
             position = ii + 1;
             break;
          }
@@ -244,8 +312,14 @@ void Boil::ensureStandardProfile() {
       this->insert(mainBoil, position);
    }
 
+   //
+   // If the boil does not end with a post-boil step, then we need to add one.  NB: It's not enough to check that the
+   // last step ends at boiling, as a step such as a hop stand held at 92°C after a cooling step is post-boil (see
+   // Boil::stepPhases).
+   //
    boilSteps = this->steps();
-   if (Boil::endsAtBoil(*boilSteps.last())) {
+   phases = Boil::stepPhases(boilSteps);
+   if (phases.back() != Boil::StepPhase::PostBoil) {
       // We need to add a post-boil step
       auto postBoil = std::make_shared<BoilStep>(tr("Post-boil for %1").arg(recipeStrippedName));
       postBoil->setDescription(tr("Automatically-generated post-boil step for %1").arg(recipeStrippedName));
@@ -257,7 +331,8 @@ void Boil::ensureStandardProfile() {
             endingTemp = firstFermentationStep->startTemp_c().value_or(endingTemp);
          }
       }
-      postBoil->setStartTemp_c(100.0);
+      // Start from wherever the boil proper ended (eg it might be below 100°C at altitude)
+      postBoil->setStartTemp_c(boilSteps.last()->endTemp_c().value_or(100.0));
       postBoil->setEndTemp_c(endingTemp);
       this->insert(postBoil, static_cast<int>(boilSteps.size()) + 1);
    }
@@ -270,9 +345,9 @@ std::pair<int, int> Boil::boilProperSteps() const {
    int lastBoilProperStep  = std::max(1, static_cast<int>(this->numSteps()));
    bool foundBoilProper = false;
    int stepNumber = 0;
-   for (auto const & boilStep : this->boilSteps()) {
+   for (auto const phase : this->stepPhases()) {
       ++stepNumber;
-      if (Boil::isBoilProper(*boilStep)) {
+      if (phase == Boil::StepPhase::BoilProper) {
          if (!foundBoilProper) {
             firstBoilProperStep = stepNumber;
             foundBoilProper = true;
@@ -283,14 +358,15 @@ std::pair<int, int> Boil::boilProperSteps() const {
    return {firstBoilProperStep, lastBoilProperStep};
 }
 
-Boil::PostBoilProfile Boil::postBoilProfile() const {
-   PostBoilProfile profile;
+Boil::PostBoil Boil::postBoilProfile() const {
+   PostBoil profile;
 
    auto const boilSteps = this->boilSteps();
    int const numBoilSteps = boilSteps.size();
+   auto const phases = Boil::stepPhases(boilSteps);
    int lastBoilProperIndex = -1;
    for (int ii = 0; ii < numBoilSteps; ++ii) {
-      if (Boil::isBoilProper(*boilSteps[ii])) {
+      if (phases[ii] == Boil::StepPhase::BoilProper) {
          lastBoilProperIndex = ii;
       }
    }
@@ -301,16 +377,47 @@ Boil::PostBoilProfile Boil::postBoilProfile() const {
    }
 
    double duration_mins = 0.0;
+   // At flameout, we are at boiling.  (NB: Per dotBeer, an unset boil step temperature means boiling.)
+   double previousEndTemp_c = boilSteps[lastBoilProperIndex]->endTemp_c().value_or(100.0);
    for (int ii = lastBoilProperIndex + 1; ii < numBoilSteps; ++ii) {
       auto const & step = boilSteps[ii];
+      std::optional<double> const startTemp_c = step->startTemp_c();
+      std::optional<double> const endTemp_c   = step->endTemp_c  ();
+
+      //
+      // Per dotBeer (and BeerJSON), ramp_time is "the amount of time that passes before this step begins", ie the time
+      // to get from the end temperature of the previous step to the start temperature of this one.  So, if there is a
+      // ramp time, we model it as its own segment, before the segment for the step itself, during which the temperature
+      // moves linearly to the start temperature of the step.  (This is consistent with how we treat ramp time for mash
+      // steps -- see MashFermentability.cpp.)  Eg a whirlpool step with a 5 minute ramp time and start and end
+      // temperatures of 80°C means "chill to 80°C over 5 minutes, then hold at 80°C for the step time".
+      //
+      // The ramp starts from wherever the wort actually got to at the end of the previous segment, which is not
+      // necessarily the end temperature of the previous step -- eg natural cooling might not get all the way down to
+      // it.  We still set startTemp_c (to the nominal end temperature of the previous step) as it is helpful in
+      // logging.
+      //
+      // If there is no ramp time, any difference between the end temperature of the previous step and the start
+      // temperature of this one is treated as instantaneous.
+      //
+      double const rampTime_mins = std::max(0.0, step->rampTime_mins().value_or(0.0));
+      if (rampTime_mins > 0.0) {
+         profile.segments.push_back({
+            .duration_minutes     = rampTime_mins,
+            .startTemp_c          = previousEndTemp_c,
+            .endTemp_c            = startTemp_c.value_or(100.0),
+            .naturalCooling       = false,
+            .startsAtPreviousTemp = true,
+         });
+         duration_mins += rampTime_mins;
+      }
+      previousEndTemp_c = endTemp_c.value_or(100.0);
+
       std::optional<double> const stepTime_mins = step->stepTime_mins();
       if (!stepTime_mins) {
          // We can't place any subsequent steps in time, so this is the end of what we know
          return profile;
       }
-      // Per dotBeer, an unset boil step temperature means boiling
-      std::optional<double> const startTemp_c = step->startTemp_c();
-      std::optional<double> const endTemp_c   = step->endTemp_c  ();
       profile.segments.push_back({
          .duration_minutes = *stepTime_mins,
          .startTemp_c      = startTemp_c.value_or(100.0),

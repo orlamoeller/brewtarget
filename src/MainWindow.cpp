@@ -160,7 +160,6 @@
 #include "utils/BtStringConst.h"
 #include "utils/VeriTable.h"
 #include "utils/OptionalHelpers.h"
-#include "widgets/WaterAdjuster.h"
 
 #ifdef MANUALLY_INCLUDE_MOC
    // Explicitly doing this include reduces potential problems with AUTOMOC when compiling with CMake
@@ -408,9 +407,9 @@ public:
       Q_ASSERT(widget);
       this->m_self.tabWidget_ingredients->setCurrentWidget(widget);
 
-      // We don't need to call this->pimpl->m_hopAdditionsTableModel->addHop(hop) here (or the equivalent for fermentable, misc or
-      // yeast) because the change to the recipe will already have triggered the necessary updates to
-      // this->pimpl->m_hopAdditionsTableModel/this->pimpl->m_fermentableTableModel/etc.
+      // We don't need to call this->pimpl->m_hopAdditionsTableModel->addHop(hop) here (or the equivalent for
+      // fermentable, misc or yeast) because the change to the recipe will already have triggered the necessary updates
+      // to this->pimpl->m_hopAdditionsTableModel/this->pimpl->m_fermentableTableModel/etc.
       return;
    }
 
@@ -592,6 +591,19 @@ public:
       //
       // This is a bit more work to implement because it's a PNG image in a QLabel object
       //
+#ifdef   BUILDING_BREWKEN
+      qDebug() <<
+         Q_FUNC_INFO << "Logo default size:" << this->m_self.label_Brewken->width() << "×" <<
+         this->m_self.label_Brewken->height();
+      this->m_self.label_Brewken->setScaledContents(true);
+      this->m_self.label_Brewken->setFixedSize(
+         static_cast<int>((265.0/66.0) * dpiX/2),  // width = 265/66 × height = 265/66 × half an inch = (265/66) × (dpiX/2)
+         dpiY/2                                    // height = half an inch = dpiY/2
+      );
+      qDebug() <<
+         Q_FUNC_INFO << "Logo new size:" << this->m_self.label_Brewken->width() << "×" <<
+         this->m_self.label_Brewken->height();
+#elifdef BUILDING_BREWTARGET
       qDebug() <<
          Q_FUNC_INFO << "Logo default size:" << this->m_self.label_Brewtarget->width() << "×" <<
          this->m_self.label_Brewtarget->height();
@@ -603,7 +615,7 @@ public:
       qDebug() <<
          Q_FUNC_INFO << "Logo new size:" << this->m_self.label_Brewtarget->width() << "×" <<
          this->m_self.label_Brewtarget->height();
-
+#endif
       return;
    }
 
@@ -832,30 +844,49 @@ public:
       }
 
       //
-      // Reduce fermentables, miscs, hops, yeasts
+      // Where possible, reduce ingredient stocks by the amounts used in the recipe -- ie create StockUses.
       //
-      // Note that the amount can be mass, volume or (for Yeast and Misc) count.  We don't worry about which here as
-      // we assume that a given type of ingredient is always measured in the same way.
+      // If there is a mismatch between the measurement type in the addition and that in the inventory (eg mass vs
+      // volume), then we cannot create a meaningful StockUse.  In such case(s), we warn the user at the end so that she
+      // can make manual inventory adjustments.
       //
-      for (auto addition : rec->fermentableAdditions()) {
-         StockPurchaseFermentable::reduceTotalInventory(*addition->ingredientRaw(),
-                                                        addition->amount(),
-                                                        brewLog);
-      }
-      for (auto addition : rec->hopAdditions()) {
-         StockPurchaseHop::reduceTotalInventory(*addition->ingredientRaw(),
-                                                addition->amount(),
-                                                brewLog);
-      }
-      for (auto addition : rec->miscAdditions()) {
-         StockPurchaseMisc::reduceTotalInventory(*addition->ingredientRaw(),
-                                                 addition->amount(),
-                                                 brewLog);
-      }
-      for (auto addition : rec->yeastAdditions()) {
-         StockPurchaseYeast::reduceTotalInventory(*addition->ingredientRaw(),
-                                                  addition->amount(),
-                                                  brewLog);
+      QStringList mismatches;
+      auto reduce = [&]<class StockPurchaseClass>(auto const & additions) {
+         for (auto const & addition : additions) {
+            StockReductionResult const result = StockPurchaseClass::reduceTotalInventory(*addition->ingredientRaw(),
+                                                                                         addition->amount(),
+                                                                                         brewLog);
+            if (result.mismatchedStockMeasure) {
+               mismatches.append(
+                  tr("%1 (%2): recipe uses %3 but stock is measured by %4 -- %5 not taken from stock").arg(
+                     addition->ingredientRaw()->name().toHtmlEscaped()
+                  ).arg(
+                     addition->ingredientRaw()->localisedName()
+                  ).arg(
+                     Measurement::physicalQuantityDisplayNames[addition->amount().unit->getPhysicalQuantity()]
+                  ).arg(
+                     Measurement::physicalQuantityDisplayNames[*result.mismatchedStockMeasure]
+                  ).arg(
+                     Measurement::displayAmount(result.notTakenFromStock)
+                  )
+               );
+            }
+         }
+      };
+      reduce.template operator()<StockPurchaseFermentable>(rec->fermentableAdditions());
+      reduce.template operator()<StockPurchaseHop        >(rec->hopAdditions        ());
+      reduce.template operator()<StockPurchaseMisc       >(rec->miscAdditions       ());
+      reduce.template operator()<StockPurchaseYeast      >(rec->yeastAdditions      ());
+
+      if (!mismatches.isEmpty()) {
+         qWarning() << Q_FUNC_INFO << "Inventory measure mismatches:" << mismatches;
+         QMessageBox::warning(
+            &this->m_self,
+            tr("Inventory not fully updated"),
+            tr("The following ingredient(s) are measured differently in the recipe and in your inventory, so the "
+               "amount(s) used could not (all) be deducted from inventory.") +
+            "<ul><li>" + mismatches.join("</li><li>") + "</li></ul>"
+         );
       }
 
       return;
@@ -944,7 +975,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent), pimpl{std::make_u
    SMART_FIELD_INIT(MainWindow, label_name           , lineEdit_name       , Recipe, PropertyNames::NamedEntity::name        );
    SMART_FIELD_INIT(MainWindow, label_targetBatchSize, lineEdit_batchSize  , Recipe, PropertyNames::Recipe::batchSize_l   , 2);
    SMART_FIELD_INIT(MainWindow, label_finalVolume    , value_finalVolume   , Recipe, PropertyNames::Recipe::finalVolume_l , 2);
-   SMART_FIELD_INIT(MainWindow, label_targetBoilSize , value_preBoilSize, Boil  , PropertyNames::Boil::preBoilSize_l   , 2);
+   SMART_FIELD_INIT(MainWindow, label_targetBoilSize , value_preBoilSize   , Boil  , PropertyNames::Boil::preBoilSize_l   , 2);
    SMART_FIELD_INIT(MainWindow, label_efficiency     , lineEdit_efficiency , Recipe, PropertyNames::Recipe::efficiency_pct, 1);
    SMART_FIELD_INIT(MainWindow, label_boilTime       , value_boilTime      , Boil  , PropertyNames::Boil::boilTime_mins   , 0);
    SMART_FIELD_INIT(MainWindow, label_boilSg         , value_boilSg        , Recipe, PropertyNames::Recipe::boilGrav      , 3);
@@ -1071,7 +1102,7 @@ void MainWindow::initialiseAndMakeVisible() {
    // set up the drag/drop parts
    this->setupDrops();
 
-   this->waterAdjuster->init();
+   this->recipeWaterWidget->init();
 
    connect(&ObjectStoreTyped<BrewLog>::getInstance(),
            &ObjectStoreTyped<BrewLog>::signalObjectDeleted,
@@ -1095,8 +1126,11 @@ void MainWindow::initialiseAndMakeVisible() {
    // Set up the pretty tool tip. It doesn't really belong anywhere, so here it is
    // .:TODO:. When we allow users to change databases without restarting, we'll need to make sure to call this whenever
    // the database is changed (as setToolTip() just takes static text as its parameter).
+#ifdef   BUILDING_BREWKEN
+   label_Brewken->setToolTip(getLabelToolTip());
+#elifdef BUILDING_BREWTARGET
    label_Brewtarget->setToolTip(getLabelToolTip());
-
+#endif
    this->setVisible(true);
 
    emit initialisedAndVisible();
@@ -1524,7 +1558,7 @@ void MainWindow::setRecipe(Recipe * recipe) {
    this->pimpl->m_recipeFormatter->setRecipe(recipe);
    this->pimpl->m_ogCorrectionTool->setRecipe(recipe);
    this->recipeExtrasWidget->setRecipe(recipe);
-   this->waterAdjuster->setRecipe(recipe);
+   this->recipeWaterWidget->setRecipe(recipe);
    this->equipmentComboBox->setItem(recipe->equipment());
    if (recipe->equipment()) {
       this->pimpl->m_equipmentEditor->setEditItem(recipe->equipment());
@@ -1931,7 +1965,7 @@ template<class NE> void MainWindow::setForRecipe(std::shared_ptr<NE> val) {
             }
             if (!preBoilSizeMatches) {
                new SimpleUndoableUpdate(*recipe.nonOptBoil(), TYPE_INFO(Boil, preBoilSize_l), newPreBoilSize_l,
-                                        tr("Change Boil Size"), update);
+                                        tr("Change Pre-Boil Size"), update);
             }
          }
       }
@@ -2177,6 +2211,19 @@ void MainWindow::addIngredientToRecipe(NE & ne) {
       return;
    }
    auto neAddition = std::make_shared<typename NE::RecipeAdditionClass>(*this->pimpl->m_recipeObs, ne);
+
+   //
+   // The newly-constructed RecipeAdditionXxx object will, via the IngredientAmount constructor, have its type of
+   // measurement set by IngredientClass::defaultMeasure.  So, eg, for Misc, this will be
+   // Measurement::PhysicalQuantity::Mass.  However, if the user has any stock purchases of this ingredient, we can look
+   // at those to take a better guess at the measurement type.  Eg, if we see that a purchase of Lactic Acid was
+   // measured by volume, then we can set that as the measurement type in preference to mass.
+   //
+   std::optional<Measurement::PhysicalQuantity> const physicalQuantity = NE::StockPurchaseClass::getBestMeasure(ne);
+   if (physicalQuantity) {
+      neAddition->setMeasure(*physicalQuantity);
+   }
+
    this->pimpl->doRecipeAddition(neAddition);
    return;
 }

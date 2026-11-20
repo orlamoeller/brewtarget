@@ -66,10 +66,29 @@ private slots:
    void testBoilStepsWithoutTemperatures();
 
    /**
+    * \brief Verify that boil steps are classified as pre-boil, boil proper and post-boil by their temperatures and
+    *        order, per the dotBeer rules (see \c Boil::stepPhases).
+    */
+   void testBoilStepPhases();
+
+   /**
+    * \brief Verify that changes to a recipe's boil, and to its boil steps, are reflected in the recipe's calculated
+    *        values (IBUs, volumes, gravities) without an explicit recalculation.
+    */
+   void testBoilChangesRecalculate();
+
+   /**
     * \brief Verify IBU calculations for hops in hot wort after flameout -- eg flameout, whirlpool and hop stand
     *        additions, and boil additions while the wort cools.  See https://github.com/Brewtarget/brewtarget/issues/774
     */
    void testPostBoilIbus();
+
+   /**
+    * \brief Verify that the ramp time of a post-boil step is handled correctly in the post-boil temperature profile,
+    *        the timing of post-boil additions and the resulting IBUs.  Also verify that mIBU uses the kettle volume at
+    *        flameout for the rate of natural cooling.
+    */
+   void testPostBoilRampTime();
 
    /**
     * \brief Verify the Garetz, Daniels and SMPH IBU formulae, including against John-Paul Hosom's published SMPH
@@ -113,6 +132,34 @@ private slots:
     *        carbonate when alkalinity itself is not set (as is the case for all imported water profiles)
     */
    void testWaterAlkalinity();
+
+   /**
+    * \brief Verify that fermentables added after the boil proper (in a post-boil step, during fermentation or at
+    *        packaging) do not contribute to the boil gravity (and hence do not affect IBUs), whereas ones added during
+    *        the boil proper do.  See https://github.com/Brewtarget/brewtarget/issues/438
+    */
+   void testLateFermentableAdditions();
+
+   /**
+    * \brief Verify that the gravity used in IBU calculations is the average over the time each hop addition spends in
+    *        the boil, taking into account evaporation and fermentables added part-way through the boil (eg late
+    *        extract additions), whereas the pre-boil gravity only counts what is in the wort at the start of the boil.
+    */
+   void testTimeWeightedBoilGravity();
+
+   /**
+    * \brief Verify that taking a snapshot of a recipe (ie copying it and making the copy the original's ancestor, as
+    *        the "Snapshot Recipe" context menu action and automatic versioning both do) works for a recipe with first
+    *        wort, boil and post-boil hop additions.  In particular:
+    *          - The copy constructor can do its calculations, even though the copy's additions do not yet know which
+    *            recipe they belong to (because the copy does not yet have an ID).  See
+    *            https://github.com/Brewken/brewken/pull/169
+    *          - The copy is a deep copy of the additions, but shares the boil, equipment etc, and its calculated values
+    *            match the original's both before and after it is stored
+    *          - The ancestry is set up correctly, and changes to the copy do not affect the original
+    *          - The same is true when the snapshot is made by automatic versioning
+    */
+   void testRecipeSnapshot();
 };
 
 #endif

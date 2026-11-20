@@ -38,11 +38,12 @@
 #include <QTimer>
 
 #include "calculations/Algorithms.h"
+#include "calculations/ColorMethods.h"
+#include "calculations/IbuMethods.h"
+#include "calculations/MashFermentability.h"
 #include "database/ObjectStoreWrapper.h"
 #include "Localization.h"
 #include "MashAutoAdjuster.h"
-#include "calculations/ColorMethods.h"
-#include "calculations/MashFermentability.h"
 #include "WaterAutoAdjuster.h"
 #include "measurement/Amount.h"
 #include "measurement/Measurement.h"
@@ -446,9 +447,10 @@ public:
                break;
             case RecipeAddition::Stage::Boil:
                if constexpr (std::same_as<AdditionType, RecipeAdditionHop>) {
-                  if (addition->isFirstWort()) {
+                  auto const boil = this->m_self.boil();
+                  if (addition->isFirstWort(boil.get())) {
                      str = tr("Put %1 %2 into first wort" "%3.");
-                  } else if (addition->isAroma()) {
+                  } else if (addition->isAroma(boil.get())) {
                      str = tr("Steep %1 %2 in wort" "%3.");
                   } else {
                      str = tr("Put %1 %2 into boil" "%3.");
@@ -622,6 +624,12 @@ public:
          std::shared_ptr<T> item{std::make_shared<T>()};
          BtStringConst const & propertyName = Recipe::propertyNameFor<T>();
          this->m_self.setAndNotify(propertyName, itemId, ObjectStoreWrapper::insert(item));
+         //
+         // As in set() above, we need to know when the new item changes (eg so that changes to a Boil's steps update
+         // our volumes, gravities and IBUs).  Otherwise, we would only find out after the Recipe was next loaded from
+         // the DB (see Recipe::connectSignals).
+         //
+         this->m_self.connect(item.get(), &NamedEntity::changed, &this->m_self, &Recipe::acceptChangeToContainedObject);
          //
          // A Boil or Fermentation with no steps isn't much use (and isn't valid in dotBeer or BeerJSON), so, as in
          // MainWindow when creating a new Recipe, we give a newly-created one a minimal profile.  (This needs to happen
@@ -1345,18 +1353,106 @@ public:
    }
 
    /**
+    * \brief Which fermentable sugars are in the kettle during the boil proper, and when they get there.  We use this
+    *        for the pre-boil gravity (\c recalcBoilGrav) and for the gravity of the wort that each hop addition sees
+    *        (\c kettleGravity_sg and \c averageKettleGravity_sg).
+    *
+    *        All amounts are after applying mash efficiency to sugars from starch, because the efficiency refers to how
+    *        much sugar we get into the fermenter.
+    */
+   struct KettleSugars {
+      /**
+       * \brief Sugar in the wort from the start of the boil proper -- ie from the mash, plus any boil additions made
+       *        before or at the start of the boil proper (including in a pre-boil step).
+       */
+      double atStartOfBoil_kg = 0.0;
+
+      struct InBoilAddition {
+         double addedBeforeFlameOut_mins;
+         double sugar_kg;
+      };
+
+      /**
+       * \brief Sugar added part-way through the boil proper (eg extract added 15 minutes before flameout), as pairs of
+       *        (minutes before flameout, kg).
+       */
+      std::vector<InBoilAddition> inBoilAdditions = {};
+
+      /**
+       * \brief Sugar in the kettle a given number of minutes before flameout.
+       */
+      double inKettle_kg(double const minutesBeforeFlameout) const {
+         double total_kg = this->atStartOfBoil_kg;
+         // We don't want to use structured bindings here because both members of the struct are the same type, so, if
+         // the order in the struct changed then the compiler wouldn't spot that a bug had been introduced here.
+         for (auto const & inBoilAddition : this->inBoilAdditions) {
+            if (inBoilAddition.addedBeforeFlameOut_mins >= minutesBeforeFlameout) {
+               total_kg += inBoilAddition.sugar_kg;
+            }
+         }
+         return total_kg;
+      }
+   };
+
+   /**
+    * \brief See comment on \c KettleSugars.
+    *
+    *        Additions made after the end of the boil proper (eg at flameout), during fermentation (eg fruit in
+    *        secondary) or at packaging (eg lactose or priming sugar) are not in the wort during the boil, so do not
+    *        count here.  See https://github.com/Brewtarget/brewtarget/issues/438.
+    */
+   KettleSugars kettleSugars() const {
+      KettleSugars ret;
+      auto const boil = this->m_self.boil();
+      double const boilTime_mins = boil ? boil->boilTime_mins() : Boil::default_boilTime_mins;
+      double const efficiency = this->m_self.efficiency_pct() / 100.0;
+
+      for (auto const & fermentableAddition : this->m_self.fermentableAdditions()) {
+         auto const stage = fermentableAddition->stage();
+         if (stage == RecipeAddition::Stage::Fermentation || stage == RecipeAddition::Stage::Packaging) {
+            continue;
+         }
+
+         auto const fermentable = fermentableAddition->fermentable();
+         double const sugar_kg =
+            fermentableAddition->equivSucrose_kg() * ((fermentable && fermentable->isExistingSugar()) ? 1.0 : efficiency);
+
+         if (stage == RecipeAddition::Stage::Boil) {
+            auto const timing = this->m_self.boilAdditionTiming(*fermentableAddition);
+            if (timing.postBoil) {
+               continue;
+            }
+            //
+            // Additions in a pre-boil step, or with no step or time, come out as being in the boil proper for the whole
+            // of the boil.  We allow a little tolerance for rounding in the step lengths.
+            //
+            if (timing.boilProper_mins < boilTime_mins - 0.01) {
+               ret.inBoilAdditions.emplace_back(
+                  KettleSugars::InBoilAddition{
+                     .addedBeforeFlameOut_mins = std::max(0.0, timing.boilProper_mins),
+                     .sugar_kg = sugar_kg
+                  }
+               );
+               continue;
+            }
+         }
+
+         ret.atStartOfBoil_kg += sugar_kg;
+      }
+
+      return ret;
+   }
+
+   /**
     * Emits changed(boilGrav). Depends on: _postBoilVolume_l, _boilVolume_l
+    *
+    * NB: This is the \b pre-boil gravity -- eg it's what we put in the brew log as the expected pre-boil gravity.  So it
+    *     only counts sugars that are in the wort at the start of the boil proper, and not, eg, extract added 15 minutes
+    *     before the end of the boil.  For IBU calculations, we use the gravity of the wort while the hops are in it --
+    *     see \c averageKettleGravity_sg.
     */
    void recalcBoilGrav() {
-      auto const sugars = this->m_self.sugarTotals();
-
-      // Since the efficiency refers to how much sugar we get into the fermentor,
-      // we need to adjust for that here.
-      double const sugar_kg{
-         this->m_self.efficiency_pct() / 100.0 *
-         (sugars.sugarsFromStarch_all_kg - sugars.sugarsFromStarch_lateAddition_kg) +
-         sugars.existingSugars_all_kg - sugars.existingSugars_lateAddition_kg
-      };
+      double const sugar_kg = this->kettleSugars().atStartOfBoil_kg;
 
       //
       // Pre-boil size is optional (in BeerJSON and dotBeer as well as for us), and there might not be a Boil at all.
@@ -1385,9 +1481,6 @@ public:
    }
 
    /**
-    * Emits changed(IBU). Depends on: _batchSize_l, _boilGrav, _boilVolume_l, _finalVolume_l
-    */
-   /**
     * \brief The inputs to IBU calculations that are the same for every hop addition in the recipe -- see
     *        \c ibuContext().
     */
@@ -1408,6 +1501,8 @@ public:
          double dissolvedAlphaAcidsBefore_ppm;
       };
       std::vector<KettleAddition> kettleAdditions = {};
+      //! What sugar is in the kettle when, for the wort gravity that each hop addition sees
+      KettleSugars kettleSugars = {};
    };
 
    /**
@@ -1415,7 +1510,7 @@ public:
     *        additions count as being in the boil for the whole of the boil.
     */
    double minutesBeforeFlameout(RecipeAdditionHop const & hopAddition, double const boilTime_mins) const {
-      if (hopAddition.isFirstWort()) {
+      if (hopAddition.isFirstWort(this->m_self.boil().get())) {
          return boilTime_mins;
       }
       auto const timing = this->m_self.boilAdditionTiming(hopAddition);
@@ -1435,6 +1530,51 @@ public:
       }
       double const proportionOfBoilRemaining = std::min(1.0, minutesBeforeFlameout / boilTime_mins);
       return atFlameout_l + (*commonParms.preBoilVolume_liters - atFlameout_l) * proportionOfBoilRemaining;
+   }
+
+   /**
+    * \brief Gravity of the wort in the kettle a given number of minutes before flameout (or at flameout if
+    *        \c minutesBeforeFlameout is 0 or less), taking into account both the sugars added up to that point and the
+    *        volume of wort at that point (which decreases during the boil due to evaporation).
+    *
+    *        NB: \c context.commonParms must already have its volume fields set.
+    */
+   double kettleGravity_sg(IbuContext const & context, double const minutesBeforeFlameout) const {
+      auto const boil = this->m_self.boil();
+      double const boilTime_mins = boil ? boil->boilTime_mins() : Boil::default_boilTime_mins;
+      double const volume_l = kettleVolume_l(context.commonParms, boilTime_mins, std::max(0.0, minutesBeforeFlameout));
+      if (volume_l <= 0.0) {
+         return 1.0;
+      }
+      return Algorithms::PlatoToSG_20C20C(
+         Algorithms::platoFromSugarMassAndWortVolume(
+            context.kettleSugars.inKettle_kg(std::max(0.0, minutesBeforeFlameout)), volume_l
+         )
+      );
+   }
+
+   /**
+    * \brief Average gravity of the wort over the last \c minutesBeforeFlameout minutes of the boil -- ie the gravity
+    *        seen by hops added that many minutes before flameout.  (This is what Tinseth means by "the average gravity
+    *        value for the entire boil to account for changes in the wort volume", and it is also what the other
+    *        formulae that use \c IbuCalculationParms::wortGravity_sg need.)
+    *
+    *        For hops added at or after flameout, this is just the gravity at flameout.
+    *
+    *        The gravity is a smooth function of time (as the wort evaporates) apart from steps when fermentables are
+    *        added, so the midpoint rule with steps of (at most) 0.1 minutes is plenty accurate.
+    */
+   double averageKettleGravity_sg(IbuContext const & context, double const minutesBeforeFlameout) const {
+      if (minutesBeforeFlameout <= 0.0) {
+         return this->kettleGravity_sg(context, 0.0);
+      }
+      int    const numSteps = std::max(1, static_cast<int>(std::ceil(minutesBeforeFlameout / 0.1)));
+      double const stepSize = minutesBeforeFlameout / numSteps;
+      double total = 0.0;
+      for (int ii = 0; ii < numSteps; ++ii) {
+         total += this->kettleGravity_sg(context, (ii + 0.5) * stepSize);
+      }
+      return total / numSteps;
    }
 
    /**
@@ -1471,15 +1611,15 @@ public:
       // For hops in the boil proper, the time in hot wort after flameout is the length of the post-boil steps (if known).
       // If we don't know, we leave it unset, and it's up to each IBU formula what to assume.
       //
-      auto const profile = boil ? boil->postBoilProfile() : Boil::PostBoilProfile{};
+      auto const profile = boil ? boil->postBoilProfile() : Boil::PostBoil{};
 
       IbuMethods::IbuCalculationParms & parms = context.commonParms;
       // For Tinseth this needs to be "volume of finished beer in liters", hence m_batchSize_l rather than
       // m_finalVolumeNoLosses_l
       parms.postBoilVolume_liters = this->m_self.m_batchSize_l;
-      // For Tinseth (and I think other methods) we want "the average gravity value for the entire boil to account for
-      // changes in the wort volume".
-      parms.wortGravity_sg             = this->m_boilGrav;
+      // The wort gravity depends on how long each hop addition is in the boil, so we can only set it once we have the
+      // kettle volumes (below).  It then gets overridden for each boil addition in ibuBreakdown().
+      context.kettleSugars = this->kettleSugars();
       parms.timeInBoil_minutes         = boilTime_mins; // But see ibuBreakdown()
       parms.coolTime_minutes           = profile.duration_mins;
       parms.postBoilTemperatureProfile = profile.segments;
@@ -1506,23 +1646,32 @@ public:
             }
          }
       }
+      //
+      // For Tinseth (and other methods that use wortGravity_sg) we want "the average gravity value for the entire boil
+      // to account for changes in the wort volume".  This is right for first wort and mash hops; for other boil
+      // additions, ibuBreakdown() uses the average over the time the hops are actually in the boil.  For formulae that
+      // model post-boil isomerization, what matters after flameout is the gravity at flameout.
+      //
+      parms.wortGravity_sg         = this->averageKettleGravity_sg(context, boilTime_mins);
+      parms.flameoutWortGravity_sg = this->kettleGravity_sg       (context, 0.0          );
+      qDebug() <<
+         Q_FUNC_INFO << "Average boil gravity:" << parms.wortGravity_sg << ", gravity at flameout:" <<
+         *parms.flameoutWortGravity_sg;
+
+      // Normally there's only one yeast.  If there's more than one, we'll take the flocculation of the first one.
       for (auto const & yeastAddition : this->m_self.yeastAdditions()) {
-         auto const yeast = yeastAddition->yeast();
-         if (yeast && yeast->flocculation()) {
-            switch (*yeast->flocculation()) {
-               case Yeast::Flocculation::VeryLow   :
-               case Yeast::Flocculation::Low       : parms.yeastFlocculation = IbuMethods::YeastFlocculation::Low   ; break;
-               case Yeast::Flocculation::MediumLow :
-               case Yeast::Flocculation::Medium    :
-               case Yeast::Flocculation::MediumHigh: parms.yeastFlocculation = IbuMethods::YeastFlocculation::Medium; break;
-               case Yeast::Flocculation::High      :
-               case Yeast::Flocculation::VeryHigh  : parms.yeastFlocculation = IbuMethods::YeastFlocculation::High  ; break;
-            }
+         if (auto const yeast = yeastAddition->yeast()) {
+            parms.yeastFlocculation = yeast->flocculation();
             break;
          }
       }
 
-      if (IbuMethods::formula == IbuMethods::IbuFormula::Smph) {
+      parms.wortClarity = this->m_self.wortClarity();
+      if (auto const fermentation = this->m_self.fermentation()) {
+         parms.krausenHandling = fermentation->krausenHandling();
+      }
+
+      if (IbuMethods::formula == Ibu::Formula::Smph) {
          std::vector<IbuMethods::KettleAlphaAcidAddition> kettleAlphaAcidAdditions;
          for (auto const & hopAddition : this->m_self.hopAdditions()) {
             if (hopAddition->stage() == RecipeAddition::Stage::Boil && hopAddition->amountIsWeight()) {
@@ -1567,7 +1716,7 @@ public:
    /**
     * \brief IBUs from one hop addition, given the recipe-level inputs in \c context.
     */
-   IbuMethods::IbuBreakdown ibuBreakdown(RecipeAdditionHop const & hopAddition, IbuContext const & context) const {
+   Ibu::Breakdown ibuBreakdown(RecipeAdditionHop const & hopAddition, IbuContext const & context) const {
       // It's a coding error to ask one recipe about another's hop additions!  Uncomment the log statement here if the
       // assert is firing.
 //      qDebug() << Q_FUNC_INFO << this->m_self << " / " << hopAddition << "; hopAddition.recipeId():" << hopAddition.recipeId();
@@ -1586,12 +1735,6 @@ public:
       if (!hopAddition.amountIsWeight()) {
          qCritical() << Q_FUNC_INFO << "Using Hop volume as weight - THIS IS PROBABLY WRONG!";
       }
-
-      // NOTE: we used to carefully calculate the average boil gravity and use it in the
-      // IBU calculations. However, due to John Palmer
-      // (http://homebrew.stackexchange.com/questions/7343/does-wort-gravity-affect-hopAddition-utilization),
-      // it seems more appropriate to just use the OG directly, since it is the total
-      // amount of break material that truly affects the IBUs.
 
       IbuMethods::IbuCalculationParms parms = context.commonParms;
       parms.AArating   = hop->alpha_pct() / 100.0;
@@ -1614,9 +1757,10 @@ public:
          Q_FUNC_INFO << "Hop Utilization =" << context.hopUtilization << ", Hop Addition" << hopAddition <<
          ", stage =" << hopAddition.stage() << ", grams =" << parms.hops_grams << ", AArating = " << parms.AArating;
 
-      IbuMethods::IbuBreakdown ibus;
+      Ibu::Breakdown ibus;
       if (hopAddition.stage() == RecipeAddition::Stage::Boil) {
-         if (!hopAddition.isFirstWort()) {
+         auto const boil = this->m_self.boil();
+         if (!hopAddition.isFirstWort(boil.get())) {
             //
             // Note that we cannot just use hopAddition.addAtTime_mins() here, because that is measured from the end of
             // the addition's step, which is not necessarily the boil proper.  Eg a whirlpool addition 20 minutes before
@@ -1630,6 +1774,12 @@ public:
                timing.boilProper_mins << ", afterFlameout_mins =" << timing.afterFlameout_mins <<
                ", postBoilRemaining_mins =" << timing.postBoilRemaining_mins;
             parms.timeInBoil_minutes = timing.boilProper_mins;
+            //
+            // The hops see the average gravity of the wort from when they are added until flameout, which depends on
+            // evaporation and on when any fermentables are added (eg late extract additions).  For post-boil additions,
+            // this is just the gravity at flameout.
+            //
+            parms.wortGravity_sg = this->averageKettleGravity_sg(context, timing.boilProper_mins);
             if (timing.postBoil) {
                // The hops are only in the hot wort from when they are added until the end of the post-boil steps.
                // (This only matters for formulae, such as mIBU and SMPH, that model post-boil isomerization.  Other
@@ -1654,7 +1804,7 @@ public:
          }
 
          ibus = IbuMethods::getIbuBreakdown(parms);
-         if (hopAddition.isFirstWort()) {
+         if (hopAddition.isFirstWort(boil.get())) {
             ibus *= context.fwhAdjust;
          }
       } else if (hopAddition.stage() == RecipeAddition::Stage::Mash && context.mashHopAdjust > 0.0) {
@@ -1896,7 +2046,7 @@ public:
    double        m_color_mcu            {0.0};
    double        m_boilGrav             {0.0};
    double        m_IBU                  {0.0};
-   IbuMethods::IbuFormula m_ibuFormula{IbuMethods::formula};
+   Ibu::Formula m_ibuFormula{IbuMethods::formula};
    QList<double> m_ibus                 {};
    double        m_wortFromMash_l       {0.0};
    double        m_boilVolume_l         {0.0};
@@ -1970,7 +2120,7 @@ QString Recipe::localisedName_age_days               () { return tr("Age"       
 QString Recipe::localisedName_ageTemp_c              () { return tr("Age Temp"               ); }
 QString Recipe::localisedName_ancestorId             () { return tr("Ancestor ID"            ); }
 QString Recipe::localisedName_apparentAttenuation_pct() { return tr("Apparent Attenuation"   ); }
-QString Recipe::localisedName_assistantBrewer             () { return tr("Assistant Brewer"       ); }
+QString Recipe::localisedName_assistantBrewer        () { return tr("Assistant Brewer"       ); }
 QString Recipe::localisedName_batchSize_l            () { return tr("BatchSize"              ); }
 QString Recipe::localisedName_beerAcidity_pH         () { return tr("Beer Acidity"           ); }
 QString Recipe::localisedName_boil                   () { return tr("Boil"                   ); }
@@ -1981,7 +2131,7 @@ QString Recipe::localisedName_brewer                 () { return tr("Brewer"    
 QString Recipe::localisedName_brewLogs               () { return tr("Brew Logs"              ); }
 QString Recipe::localisedName_calcsEnabled           () { return tr("Calculations Enabled"   ); }
 QString Recipe::localisedName_caloriesPer33cl        () { return tr("Calories Per 33cl"      ); }
-QString Recipe::localisedName_energyContent_kcalL       () { return tr("Calories Per Liter"     ); }
+QString Recipe::localisedName_energyContent_kcalL    () { return tr("Calories Per Liter"     ); }
 QString Recipe::localisedName_caloriesPerUs12oz      () { return tr("Calories Per US 12oz"   ); }
 QString Recipe::localisedName_caloriesPerUsPint      () { return tr("Calories Per US Pint"   ); }
 QString Recipe::localisedName_carbonationTemp_c      () { return tr("Carbonation Temperature"); }
@@ -2026,10 +2176,11 @@ QString Recipe::localisedName_styleId                () { return tr("Style ID"  
 QString Recipe::localisedName_tasteNotes             () { return tr("Taste Notes"            ); }
 QString Recipe::localisedName_tasteRating            () { return tr("Taste Rating"           ); }
 QString Recipe::localisedName_type                   () { return tr("Type"                   ); }
-QString Recipe::localisedName_waterBase       () { return tr("Base Water Profile"     ); }
-QString Recipe::localisedName_waterBaseId     () { return tr("Base Water Profile ID"  ); }
-QString Recipe::localisedName_waterTarget     () { return tr("Target Water Profile"   ); }
-QString Recipe::localisedName_waterTargetId   () { return tr("Target Water Profile ID"); }
+QString Recipe::localisedName_waterBase              () { return tr("Base Water Profile"     ); }
+QString Recipe::localisedName_waterBaseId            () { return tr("Base Water Profile ID"  ); }
+QString Recipe::localisedName_waterTarget            () { return tr("Target Water Profile"   ); }
+QString Recipe::localisedName_waterTargetId          () { return tr("Target Water Profile ID"); }
+QString Recipe::localisedName_wortClarity            () { return tr("Expected Wort Clarity"  ); }
 QString Recipe::localisedName_wortFromMash_l         () { return tr("Wort From Mash"         ); }
 QString Recipe::localisedName_yeastAdditions         () { return tr("Yeast Additions"        ); }
 
@@ -2077,6 +2228,7 @@ bool Recipe::compareWith(NamedEntity const & other, QList<BtStringConst const *>
       AUTO_PROPERTY_COMPARE_ID(this, rhs, Boil , m_boilId , PropertyNames::Recipe::boilId        , propertiesThatDiffer) &&
       AUTO_PROPERTY_COMPARE_ID(this, rhs, Water, m_waterBaseId  , PropertyNames::Recipe::waterBaseId  , propertiesThatDiffer) &&
       AUTO_PROPERTY_COMPARE_ID(this, rhs, Water, m_waterTargetId, PropertyNames::Recipe::waterTargetId, propertiesThatDiffer) &&
+      AUTO_PROPERTY_COMPARE   (this, rhs, m_wortClarity   , PropertyNames::Recipe::wortClarity   , propertiesThatDiffer) &&
       //
       // We don't include any of the following in the equality test:
       //    - Calculated values such as m_og and m_fg, since, if everything else is the same, they should match
@@ -2145,37 +2297,38 @@ TypeLookup const Recipe::typeLookup {
       PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, boilGrav           , boilGrav            , Measurement::PhysicalQuantity::Gravity      ), // Calculated, not in DB
       PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, boilVolume_l       , boilVolume_l        , Measurement::PhysicalQuantity::Volume       ), // Calculated, not in DB
       PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, energyContent_kcalL, energyContent_kcalL , Measurement::PhysicalQuantity::EnergyPerVolume), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerUs12oz, caloriesPerUs12oz,         NonPhysicalQuantity::Dimensionless), // TODO: Remove this
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerUsPint, caloriesPerUsPint,         NonPhysicalQuantity::Dimensionless), // TODO: Remove this
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, color_srm        , color_srm         , Measurement::PhysicalQuantity::Color     ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, finalVolume_l    , finalVolume_l     , Measurement::PhysicalQuantity::Volume    ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, grainsInMash_kg  , grainsInMash_kg   , Measurement::PhysicalQuantity::Mass      ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, grains_kg        , grains_kg         , Measurement::PhysicalQuantity::Mass      ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, ibuFormula       , ibuFormula        ,           NonPhysicalQuantity::Enum      ), // Cached, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, IBU              , IBU               , Measurement::PhysicalQuantity::Bitterness), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerUs12oz  , caloriesPerUs12oz,         NonPhysicalQuantity::Dimensionless), // TODO: Remove this
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, caloriesPerUsPint  , caloriesPerUsPint,         NonPhysicalQuantity::Dimensionless), // TODO: Remove this
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, color_srm          , color_srm         , Measurement::PhysicalQuantity::Color     ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, finalVolume_l      , finalVolume_l     , Measurement::PhysicalQuantity::Volume    ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, grainsInMash_kg    , grainsInMash_kg   , Measurement::PhysicalQuantity::Mass      ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, grains_kg          , grains_kg         , Measurement::PhysicalQuantity::Mass      ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, ibuFormula         , ibuFormula        ,           NonPhysicalQuantity::Enum      ), // Cached, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, IBU                , IBU               , Measurement::PhysicalQuantity::Bitterness), // Calculated, not in DB
 //      PROPERTY_TYPE_LOOKUP_ENTRY(PropertyNames::Recipe::IBUs              , Recipe::m_IBUs              ),
 //      PROPERTY_TYPE_LOOKUP_ENTRY(PropertyNames::Recipe::points            , Recipe::m_points            ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, postBoilVolume_l , postBoilVolume_l  , Measurement::PhysicalQuantity::Volume     ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, wortFromMash_l   , wortFromMash_l    , Measurement::PhysicalQuantity::Volume     ), // Calculated, not in DB
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, style            , style               ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, mash             , mash                ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, boil             , boil                ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, fermentation     , fermentation        ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, equipment        , equipment           ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, waterBase        , waterBase           ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, waterTarget      , waterTarget         ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, brewLogs         , brewLogs           ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, fermentableAdditions, fermentableAdditions),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, hopAdditions        , hopAdditions        ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, miscAdditions       , miscAdditions       ),
-      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, yeastAdditions      , yeastAdditions      ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, postBoilVolume_l       , postBoilVolume_l  , Measurement::PhysicalQuantity::Volume     ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, wortFromMash_l         , wortFromMash_l    , Measurement::PhysicalQuantity::Volume     ), // Calculated, not in DB
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, style                  , style               ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, mash                   , mash                ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, boil                   , boil                ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, fermentation           , fermentation        ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, equipment              , equipment           ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, waterBase              , waterBase           ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, waterTarget            , waterTarget         ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, brewLogs               , brewLogs            ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, fermentableAdditions   , fermentableAdditions),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, hopAdditions           , hopAdditions        ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, miscAdditions          , miscAdditions       ),
+      PROPERTY_TYPE_LOOKUP_NO_MV(Recipe, yeastAdditions         , yeastAdditions      ),
       PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, beerAcidity_pH         , m_beerAcidity_pH         , Measurement::PhysicalQuantity::Acidity   ),
       PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, apparentAttenuation_pct, m_apparentAttenuation_pct,           NonPhysicalQuantity::Percentage),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, roWaterMash_pct      , m_roWaterMash_pct  ,           NonPhysicalQuantity::Percentage        ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, roWaterSparge_pct    , m_roWaterSparge_pct,           NonPhysicalQuantity::Percentage        ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, targetMashAcidity_pH , m_targetMashAcidity_pH, Measurement::PhysicalQuantity::Acidity      ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, waterKeptInSync      , m_waterKeptInSync  , BOOL_INFO(tr("No"), tr("Yes"))                ),
-      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, fgCalcUsesMash       , m_fgCalcUsesMash   , BOOL_INFO(tr("No"), tr("Yes"))                ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, roWaterMash_pct        , m_roWaterMash_pct  ,           NonPhysicalQuantity::Percentage        ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, roWaterSparge_pct      , m_roWaterSparge_pct,           NonPhysicalQuantity::Percentage        ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, targetMashAcidity_pH   , m_targetMashAcidity_pH, Measurement::PhysicalQuantity::Acidity      ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, waterKeptInSync        , m_waterKeptInSync  , BOOL_INFO(tr("No"), tr("Yes"))                ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, fgCalcUsesMash         , m_fgCalcUsesMash   , BOOL_INFO(tr("No"), tr("Yes"))                ),
+      PROPERTY_TYPE_LOOKUP_ENTRY(Recipe, wortClarity            , m_wortClarity      , ENUM_INFO(Measurement::Qualitative::wortClarity)),
 
    },
    // Parent classes lookup
@@ -2240,6 +2393,7 @@ Recipe::Recipe(NamedParameterBundle const & namedParameterBundle) :
    // This will be in the bundle when we read from the database, but not when importing from a file (see comment on
    // Recipe::fgCalcUsesMash in model/Recipe.h)
    SET_REGULAR_FROM_NPB (m_fgCalcUsesMash         , namedParameterBundle, PropertyNames::Recipe::fgCalcUsesMash         , Recipe::defaultFgCalcUsesMash()),
+   SET_OPT_ENUM_FROM_NPB(m_wortClarity            , Measurement::Qualitative::WortClarity, namedParameterBundle, PropertyNames::Recipe::wortClarity),
 
    // See comment in model/OwnedSet.h for why an OwnedSet never needs to read from NamedParameterBundle
    m_fermentableAdditions{*this},
@@ -2272,7 +2426,7 @@ Recipe::Recipe(Recipe const & other) :
    NamedEntity{other},
    FolderPropertyBase<Recipe>{other},
    // The impl copy constructor calls the OwnedSet copy constructor for each type of recipe addition etc which, in turn
-   // does a deep copy of the corresonding additions
+   // does a deep copy of the corresponding additions.
    pimpl{std::make_unique<impl>(*this, other)},
    m_type                   {other.m_type              },
    m_brewer                 {other.m_brewer            },
@@ -2307,6 +2461,7 @@ Recipe::Recipe(Recipe const & other) :
    m_targetMashAcidity_pH   {other.m_targetMashAcidity_pH   },
    m_waterKeptInSync        {other.m_waterKeptInSync        },
    m_fgCalcUsesMash         {other.m_fgCalcUsesMash         },
+   m_wortClarity            {other.m_wortClarity            },
    // Owned sets need the correct owner, but otherwise can handle whatever deep copying is needed.
    m_fermentableAdditions   {*this, other.m_fermentableAdditions},
    m_hopAdditions           {*this, other.m_hopAdditions        },
@@ -2505,20 +2660,27 @@ void Recipe::generateInstructions() {
       //
       auto const [firstBoilProperStep, lastBoilProperStep] = boil->boilProperSteps();
 
+      //
+      // If there is no boil, or it has no length, we omit the "Start boil" and "Flameout" instructions.  In such a
+      // case, boil additions are all shown as being made at the end of the boil.
+      //
+      bool const hasBoilProper = !qFuzzyIsNull(boilTime_mins);
+
       // NB: Because we use a stable sort below, this will come before boil additions made at the start of the boil
       // proper (which have the same step and interval).
-      preInstructions.push_back(
-      PreInstruction(
-         RecipeAddition::Stage::Boil,
-         firstBoilProperStep,
-         boilTime_mins,
-         tr("Start boil"),
-         tr("Bring the wort to a boil and hold for %1.").arg(
-               Measurement::displayAmount(Measurement::Amount{boilTime_mins, Measurement::Units::minutes},
-               0)
+      if (hasBoilProper) {
+         preInstructions.push_back(
+            PreInstruction(
+               RecipeAddition::Stage::Boil,
+               firstBoilProperStep,
+               boilTime_mins,
+               tr("Start boil"),
+               tr("Bring the wort to a boil and hold for %1.").arg(
+                  Measurement::displayAmount(Measurement::Amount{boilTime_mins, Measurement::Units::minutes}, 0)
+               )
             )
-         )
-      );
+         );
+      }
 
       // Get fermentables unless we haven't added yet
       this->pimpl->instructionsForBoilFermentables(boilTime_mins, preInstructions);
@@ -2538,23 +2700,26 @@ void Recipe::generateInstructions() {
       // Flameout is the end of the boil proper, so it comes after any additions at the end of the boil (which, because
       // we use a stable sort below, will have been added to preInstructions before this) and before any post-boil
       // additions (which are in later steps).
-      preInstructions.push_back(
-         PreInstruction(RecipeAddition::Stage::Boil,
-                        lastBoilProperStep,
-                        0.0,
-                        tr("Flameout"),
-                        tr("Stop boiling the wort."))
-      );
+      if (hasBoilProper) {
+         preInstructions.push_back(
+            PreInstruction(RecipeAddition::Stage::Boil,
+                           lastBoilProperStep,
+                           0.0,
+                           tr("Flameout"),
+                           tr("Stop boiling the wort."))
+         );
+      }
 
       // END boil instructions.
    }
 
 
-   // TODO: These get included in RecipeAddition::Stage::Boil above.  But we're going to want to rework this anyway to
-   //       order by stage, step, time.
-   // Steeped aroma hops
-   // preinstructions = this->pimpl->hopSteps(Hop::Use::Aroma);
-   //this->pimpl->addPreInstructions(preInstructions);
+   //
+   // NB: Post-boil (eg flameout, whirlpool, hop stand) hop and misc additions are boil additions in post-boil steps of
+   // the boil, so they were all covered by the Boil stage calls above.  Do not add a separate pass for "aroma" hops
+   // here, otherwise those additions will appear twice in the instructions.  (See
+   // https://github.com/Brewtarget/brewtarget/issues/1028.)
+   //
 
    // Fermentation instructions
 
@@ -2973,6 +3138,16 @@ void Recipe::setFgCalcUsesMash(bool const val) {
    this->recalcAll();
    return;
 }
+void Recipe::setWortClarity(std::optional<Measurement::Qualitative::WortClarity> const val) {
+   SET_AND_NOTIFY(PropertyNames::Recipe::wortClarity, this->m_wortClarity, val);
+   // Wort clarity affects IBUs in the SMPH model
+   this->pimpl->recalcIBU();
+   return;
+}
+void Recipe::setWortClarityAsInt(std::optional<int> const val) {
+   this->setWortClarity(Optional::fromOptInt<Measurement::Qualitative::WortClarity>(val));
+   return;
+}
 
 void Recipe::setLocked(bool const isLocked) {
    // Locking a Recipe doesn't count as changing it for the purposes of versioning or the UI, so no call to setAndNotify
@@ -3151,7 +3326,7 @@ double        Recipe::color_mcu        () const { return this->pimpl->getCalcula
 double        Recipe::color_srm        () const { return ColorMethods::mcuToSrm(this->color_mcu()); }
 double        Recipe::ABV_pct          () const { return this->pimpl->getCalculated(this->pimpl->m_ABV_pct         ); }
 double        Recipe::IBU              () const { return this->pimpl->getCalculated(this->pimpl->m_IBU             ); }
-IbuMethods::IbuFormula  Recipe::ibuFormula() const { return this->pimpl->getCalculated(this->pimpl->m_ibuFormula   ); }
+Ibu::Formula  Recipe::ibuFormula() const { return this->pimpl->getCalculated(this->pimpl->m_ibuFormula   ); }
 QList<double> Recipe::IBUs             () const { return this->pimpl->getCalculated(this->pimpl->m_ibus            ); }
 double        Recipe::boilGrav         () const { return this->pimpl->getCalculated(this->pimpl->m_boilGrav        ); }
 double        Recipe::energyContent_kcalL() const { return this->pimpl->getCalculated(this->pimpl->m_caloriesPerLiter); }
@@ -3270,6 +3445,8 @@ double Recipe::roWaterSparge_pct() const { return m_roWaterSparge_pct; }
 std::optional<double> Recipe::targetMashAcidity_pH() const { return m_targetMashAcidity_pH; }
 bool Recipe::waterKeptInSync() const { return m_waterKeptInSync; }
 bool Recipe::fgCalcUsesMash () const { return m_fgCalcUsesMash ; }
+std::optional<Measurement::Qualitative::WortClarity> Recipe::wortClarity     () const { return m_wortClarity; }
+std::optional<int>                 Recipe::wortClarityAsInt() const { return Optional::toOptInt(m_wortClarity); }
 
 bool Recipe::defaultFgCalcUsesMash() {
    return PersistentSettings::value_ck(PersistentSettings::Names::defaultFgCalcUsesMash, false).toBool();
@@ -3305,10 +3482,17 @@ void Recipe::recalcIfNeeded(QString classNameOfWhatWasAddedOrChanged) {
       return;
    }
 
+   //
+   // NB: Changes to a boil include changes to its steps (because Boil emits a changed signal when one of its steps
+   // changes -- see OwnedSet::acceptItemChange) and adding or removing steps.  Pretty much everything can depend on the
+   // boil: the length of the boil proper determines evaporation, and hence volumes and gravities; the pre-boil size
+   // determines the boil gravity; and the post-boil steps determine post-boil IBUs (for formulae that model them).
+   //
    if (classNameOfWhatWasAddedOrChanged ==                 Equipment::staticMetaObject.className() ||
        classNameOfWhatWasAddedOrChanged ==               Fermentable::staticMetaObject.className() ||
        classNameOfWhatWasAddedOrChanged == RecipeAdditionFermentable::staticMetaObject.className() ||
-       classNameOfWhatWasAddedOrChanged ==                      Mash::staticMetaObject.className()) {
+       classNameOfWhatWasAddedOrChanged ==                      Mash::staticMetaObject.className() ||
+       classNameOfWhatWasAddedOrChanged ==                      Boil::staticMetaObject.className()) {
       this->recalcAll();
       return;
    }
@@ -3318,6 +3502,12 @@ void Recipe::recalcIfNeeded(QString classNameOfWhatWasAddedOrChanged) {
       this->pimpl->recalcOgFg();
       this->pimpl->recalcABV_pct();
       // Yeast flocculation affects IBUs in the SMPH model
+      this->pimpl->recalcIBU();
+      return;
+   }
+
+   // Krausen handling (on the fermentation) affects IBUs in the SMPH model
+   if (classNameOfWhatWasAddedOrChanged == Fermentation::staticMetaObject.className()) {
       this->pimpl->recalcIBU();
       return;
    }
@@ -3429,21 +3619,14 @@ Recipe::Sugars Recipe::sugarTotals() const {
       // extract that has to be converted from starch in the mash is.  (Previously only Sugar, Extract and Dry_Extract
       // were treated as existing sugar, so eg fruit or honey additions were wrongly scaled by mash efficiency.)
       //
+      // (What is in the kettle when, which matters for the boil gravity and IBUs, is handled separately, in
+      // Recipe::impl::kettleSugars().)
+      //
       if (fermentable->isExistingSugar()) {
          ret.existingSugars_all_kg += fermentableAddition->equivSucrose_kg();
-
-         if (fermentableAddition->addAfterBoil()) {
-            ret.existingSugars_lateAddition_kg += fermentableAddition->equivSucrose_kg();
-         }
-
          ret.existingSugars_nonFermentable_kg += fermentableAddition->equivSucrose_kg() * unfermentableShare;
       } else {
          ret.sugarsFromStarch_all_kg += fermentableAddition->equivSucrose_kg();
-
-         if (fermentableAddition->addAfterBoil()) {
-            ret.sugarsFromStarch_lateAddition_kg += fermentableAddition->equivSucrose_kg();
-         }
-
          ret.sugarsFromStarch_nonFermentable_kg += fermentableAddition->equivSucrose_kg() * unfermentableShare;
       }
    }
@@ -3505,9 +3688,10 @@ Recipe::BoilAdditionTiming Recipe::boilAdditionTiming(RecipeAddition const & add
 
    // Remember RecipeAddition steps are numbered from 1, but lists are indexed from 0
    int const stepIndex = *step - 1;
+   auto const phases = Boil::stepPhases(boilSteps);
    int lastBoilProperIndex = -1;
    for (int ii = 0; ii < numBoilSteps; ++ii) {
-      if (Boil::isBoilProper(*boilSteps[ii])) {
+      if (phases[ii] == Boil::StepPhase::BoilProper) {
          lastBoilProperIndex = ii;
       }
    }
@@ -3524,30 +3708,42 @@ Recipe::BoilAdditionTiming Recipe::boilAdditionTiming(RecipeAddition const & add
       // Addition is after the end of the boil proper -- eg flameout, whirlpool or hop stand.  So no time in the boil,
       // and addAtTime_mins is time before the end of this post-boil step.  No time means start of the step.
       //
+      // Per dotBeer (and BeerJSON), a step's ramp time is the time that passes _before_ the step begins (see
+      // Boil::postBoilProfile).  So, eg, a hop stand addition with no time, in a step with a ramp time, is made once
+      // the wort has got to the step's start temperature, ie at the end of the ramp.  If addAtTime_mins is greater
+      // than the length of the step (but not greater than the length of the step plus its ramp time), then the
+      // addition is made during the ramp.
+      //
       timing.postBoil = true;
       timing.boilProper_mins = 0.0;
 
+      auto const rampTime_mins = [](auto const & boilStep) {
+         return std::max(0.0, boilStep->rampTime_mins().value_or(0.0));
+      };
+      double const additionStepRampTime_mins = rampTime_mins(additionStep);
+
+      // NB: This is negative if the addition is made during the ramp before the step
       double minsIntoStep = 0.0;
       if (addAtTime_mins) {
          timing.untilEndOfStep_mins = *addAtTime_mins;
          if (stepLength_mins) {
-            minsIntoStep = std::max(0.0, *stepLength_mins - *addAtTime_mins);
+            minsIntoStep = std::max(-additionStepRampTime_mins, *stepLength_mins - *addAtTime_mins);
          }
       } else {
          timing.untilEndOfStep_mins = stepLength_mins;
       }
 
-      timing.afterFlameout_mins = minsIntoStep;
+      timing.afterFlameout_mins = additionStepRampTime_mins + minsIntoStep;
       for (int ii = lastBoilProperIndex + 1; ii < stepIndex; ++ii) {
-         timing.afterFlameout_mins += boilSteps[ii]->stepTime_mins().value_or(0.0);
+         timing.afterFlameout_mins += rampTime_mins(boilSteps[ii]) + boilSteps[ii]->stepTime_mins().value_or(0.0);
       }
 
-      // Time remaining in the hot wort is the rest of this step plus all subsequent steps
+      // Time remaining in the hot wort is the rest of this step plus all subsequent steps (including their ramps)
       timing.postBoilRemaining_mins = timing.untilEndOfStep_mins;
       for (int ii = stepIndex + 1; ii < numBoilSteps && timing.postBoilRemaining_mins; ++ii) {
          auto const subsequentStepLength_mins = boilSteps[ii]->stepTime_mins();
          if (subsequentStepLength_mins) {
-            *timing.postBoilRemaining_mins += *subsequentStepLength_mins;
+            *timing.postBoilRemaining_mins += rampTime_mins(boilSteps[ii]) + *subsequentStepLength_mins;
          } else {
             timing.postBoilRemaining_mins = std::nullopt;
          }
@@ -3571,11 +3767,11 @@ Recipe::BoilAdditionTiming Recipe::boilAdditionTiming(RecipeAddition const & add
    //
    double subsequentBoilProper_mins = 0.0;
    for (int ii = stepIndex + 1; ii <= lastBoilProperIndex; ++ii) {
-      if (Boil::isBoilProper(*boilSteps[ii])) {
+      if (phases[ii] == Boil::StepPhase::BoilProper) {
          subsequentBoilProper_mins += boilSteps[ii]->stepTime_mins().value_or(0.0);
       }
    }
-   if (Boil::isBoilProper(*additionStep)) {
+   if (phases[stepIndex] == Boil::StepPhase::BoilProper) {
       timing.boilProper_mins =
          // No time means start of the step
          addAtTime_mins.value_or(stepLength_mins.value_or(0.0)) + subsequentBoilProper_mins;
@@ -3589,7 +3785,7 @@ double Recipe::ibuFromHopAddition(RecipeAdditionHop const & hopAddition) const {
    return this->ibuBreakdownFromHopAddition(hopAddition).total();
 }
 
-IbuMethods::IbuBreakdown Recipe::ibuBreakdownFromHopAddition(RecipeAdditionHop const & hopAddition) const {
+Ibu::Breakdown Recipe::ibuBreakdownFromHopAddition(RecipeAdditionHop const & hopAddition) const {
    auto const ibus = this->pimpl->ibuBreakdown(hopAddition, this->pimpl->ibuContext());
 
    // Note which formula we used
@@ -3614,8 +3810,9 @@ QList<QString> Recipe::getFermentableAdditionNameAndAmounts() const {
 
 QList<QString> Recipe::getHopAdditionNameAndAmounts(bool const firstWort) const {
    QList<QString> result;
+   auto const boil = this->boil();
    for (auto const & hopAddition : this->hopAdditions()) {
-      if (firstWort == hopAddition->isFirstWort()) {
+      if (firstWort == hopAddition->isFirstWort(boil.get())) {
          static QString const format {"%1 %2"};
          result.append(
             format.arg(Measurement::displayAmount(hopAddition->amount(), 1))
@@ -3672,8 +3869,17 @@ void Recipe::acceptChangeToContainedObject(QMetaProperty prop, QVariant val) {
    //
    //
    // If our mash is set to adjust automatically, changes to the equipment or boil (eg pre-boil size) mean it might need
-   // adjusting, as do changes to some of the mash's own fields.  (But not changes to its steps, as the user would not
-   // expect to have those changes overwritten.)
+   // adjusting, as do changes to some of the mash's own fields.
+   //
+   // For the mash steps, there are two cases:
+   //   - Steps being added, removed or re-ordered is handled here.  We get the same "steps" property change signal
+   //     from the Mash for this as for a change to one of the steps, but with the new number of steps as the value
+   //     (see OwnedSet::emitSetChanged) rather than an invalid QVariant (see OwnedSet::acceptItemChange).
+   //   - A change to a step is handled in Mash::acceptSetMemberChange, because that is where we still know which
+   //     property of which step changed.  Not all changes should trigger an adjustment: in particular, we don't want
+   //     to be triggered by the changes the adjustment itself makes.
+   // In neither case do we want to adjust the mash while results are being written to it (see
+   // MashAutoAdjuster::isApplying).
    //
    if (qobject_cast<Equipment *>(signalSender) || qobject_cast<Boil *>(signalSender)) {
       this->scheduleMashAutoAdjust();
@@ -3684,6 +3890,9 @@ void Recipe::acceptChangeToContainedObject(QMetaProperty prop, QVariant val) {
           propName == *PropertyNames::Mash::spargeTemp_c          ||
           propName == *PropertyNames::Mash::tunWeight_kg          ||
           propName == *PropertyNames::Mash::tunSpecificHeat_calGC) {
+         this->scheduleMashAutoAdjust();
+      } else if (propName == *PropertyNames::StepOwnerBase::steps && val.isValid() &&
+                 !MashAutoAdjuster::isApplying()) {
          this->scheduleMashAutoAdjust();
       }
    }
