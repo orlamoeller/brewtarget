@@ -24,7 +24,8 @@
 
 /**
  * \brief A bar shown at the top of the editor for something that can be shared between recipes and/or locked (ie, at
- *        the moment, \c Mash, \c Boil and \c Fermentation -- see \c model/LockablePropertyBase.h).  It tells the user
+ *        the moment, \c Mash, \c Boil and \c Fermentation -- see \c model/LockablePropertyBase.h -- which can be both,
+ *        and \c Equipment and \c Style, which can only be shared -- see \c setLockable).  It tells the user
  *        which recipes use the item and whether they can change it, and offers buttons to make a copy for the current
  *        recipe and to lock or unlock the item.
  *
@@ -48,12 +49,28 @@ public:
     */
    void setState(QString const & text, bool const needsAttention, bool const offerCopy, bool const itemLocked);
 
+   /**
+    * \brief For things that can be shared between recipes but not locked (eg \c Equipment, \c Style), we use the bar
+    *        just to say which recipes use the item and to offer to make a copy, so we don't want the Lock button.
+    */
+   void setLockable(bool const lockable);
+
 signals:
    void makeCopyClicked();
    void lockClicked();
    void unlockClicked();
 
+protected:
+   /**
+    * \brief Handles \c QEvent::LanguageChange by updating the text of the buttons.  (The text of \c m_text comes from
+    *        \c EditorBase, which updates it at the same time -- see \c EditorBase::doChangeEvent.)
+    */
+   void changeEvent(QEvent * event) override;
+
 private:
+   //! Set the text of the buttons in the current language
+   void retranslateButtons();
+
    QLabel      * m_text;
    QPushButton * m_makeCopy;
    QPushButton * m_lockOrUnlock;

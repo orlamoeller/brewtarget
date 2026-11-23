@@ -20,7 +20,7 @@
  =====================================================================================================================*/
 #include "tools/OgCorrectionTool.h"
 
-#include <QMessageBox>
+#include <QEvent>
 
 #include "calculations/Algorithms.h"
 #include "MainWindow.h"
@@ -62,9 +62,15 @@ OgCorrectionTool::OgCorrectionTool(QWidget * parent) :
    SMART_FIELD_INIT_FS   (OgCorrectionTool, label_finalBatchSize  , value_finalBatchSize  , double, Measurement::PhysicalQuantity::Volume        );
    SMART_FIELD_INIT_FS   (OgCorrectionTool, label_addSugarOrDme   , value_addSugarOrDme   , double, Measurement::PhysicalQuantity::Mass       , 1);
 
-   connect(this->pushButton_calculate, &QAbstractButton::clicked, this, &OgCorrectionTool::calculate);
+   // We recalculate whenever an input changes, so there is no need for a "Calculate" button
+   connect(this->lineEdit_measuredSg   , &SmartLineEdit::textModified, this, &OgCorrectionTool::calculate);
+   connect(this->lineEdit_measuredTemp , &SmartLineEdit::textModified, this, &OgCorrectionTool::calculate);
+   connect(this->lineEdit_calTemp      , &SmartLineEdit::textModified, this, &OgCorrectionTool::calculate);
+   connect(this->lineEdit_preBoilVolume, &SmartLineEdit::textModified, this, &OgCorrectionTool::calculate);
    connect(&MainWindow::instance(), &MainWindow::newRecipeSelected, this, &OgCorrectionTool::newlySelectedRecipe);
 
+   this->label_problem->setStyleSheet(style_red);
+   this->label_problem->setVisible(false);
    this->hideOutputs();
    return;
 }
@@ -75,7 +81,7 @@ void OgCorrectionTool::setRecipe(Recipe * rec) {
    if (rec && rec != this->m_recObs) {
       this->m_recObs = rec;
       this->value_targetOg->setQuantity(this->m_recObs->og());
-      this->hideOutputs();
+      this->calculate();
    }
    return;
 }
@@ -88,34 +94,40 @@ void OgCorrectionTool::newlySelectedRecipe() {
 // TODO: There are a LOT of assumptions and simplifications here. Need to change that.
 void OgCorrectionTool::calculate() {
 
-   if (!this->m_recObs) {
-      QMessageBox::critical(this,
-                            tr("No Recipe Selected"),
-                            tr("You need to have a recipe open in the main window before you can use this tool."));
-      return;
-   }
-
-   auto const equipment = this->m_recObs->equipment();
-   if (!equipment) {
-      QMessageBox::critical(this,
-                            tr("No Equipment on Recipe"),
-                            tr("Recipe \"%1\" has no equipment.").arg(this->m_recObs->name()));
-      return;
-   }
-
-   auto const boil = this->m_recObs->boil();
-   if (!boil) {
-      QMessageBox::critical(this,
-                            tr("No Boil on Recipe"),
-                            tr("Recipe \"%1\" has no boil.").arg(this->m_recObs->name()));
-      return;
-   }
-
    //
    // Start with all the output boxes hidden.  We'll show different ones depending on whether the wort is
    // above-/below-/on-target.
    //
    this->hideOutputs();
+   this->value_actualSg->setRawText("");
+   this->label_problem->setVisible(false);
+
+   //
+   // Because we recalculate as soon as any input changes, we tell the user about missing recipe info in the dialog
+   // itself rather than with a pop-up.
+   //
+   auto showProblem = [this](QString const & text) {
+      this->label_problem->setText(text);
+      this->label_problem->setVisible(true);
+      return;
+   };
+
+   if (!this->m_recObs) {
+      showProblem(tr("You need to have a recipe open in the main window before you can use this tool."));
+      return;
+   }
+
+   auto const equipment = this->m_recObs->equipment();
+   if (!equipment) {
+      showProblem(tr("Recipe \"%1\" has no equipment.").arg(this->m_recObs->name()));
+      return;
+   }
+
+   auto const boil = this->m_recObs->boil();
+   if (!boil) {
+      showProblem(tr("Recipe \"%1\" has no boil.").arg(this->m_recObs->name()));
+      return;
+   }
 
    //
    // If the user entered Plato or Brix, we use that as-is.  If they entered Specific Gravity, then, provided they gave
@@ -160,12 +172,12 @@ void OgCorrectionTool::calculate() {
       }
    }
 
+   //
+   // If an input is blank, the user probably just hasn't got to it yet, so we quietly wait.  If it's not blank but we
+   // can't read it, we highlight it.
+   //
    if (std::isnan(startGravityAt20C_sg)) {
-      this->lineEdit_measuredSg->setStyleSheet(style_redBorder);
-      // TODO Probably would be better to have this error message in the form rather than a pop-up
-      QMessageBox::critical(this,
-                            tr("Couldn't read input"),
-                            tr("Need a valid value for Measured Gravity"));
+      this->lineEdit_measuredSg->setStyleSheet(this->lineEdit_measuredSg->isBlank() ? "" : style_redBorder);
       return;
    }
    this->lineEdit_measuredSg->setStyleSheet("");
@@ -175,11 +187,7 @@ void OgCorrectionTool::calculate() {
    double const wort_l      = lineEdit_preBoilVolume->getNonOptCanonicalQty(&parsedOk);
 
    if (lineEdit_preBoilVolume->isBlank() || !parsedOk) {
-      this->lineEdit_preBoilVolume->setStyleSheet(style_redBorder);
-      // TODO Probably would be better to have this error message in the form rather than a pop-up
-      QMessageBox::critical(this,
-                            tr("Couldn't read input"),
-                            tr("Need a valid value for Wort Volume"));
+      this->lineEdit_preBoilVolume->setStyleSheet(this->lineEdit_preBoilVolume->isBlank() ? "" : style_redBorder);
       return;
    }
    this->lineEdit_preBoilVolume->setStyleSheet("");
@@ -212,21 +220,24 @@ void OgCorrectionTool::calculate() {
    double const roundedPredictedOg = Algorithms::round(finalUncorrectedSg_20C, 3);
 
    if (qFuzzyCompare(roundedPredictedOg, roundedTargetOg)) {
-      this->label_noActionOgComment->setText(tr("- On Target -"));
+      this->m_outcome = Outcome::OnTarget;
+      this->showOutcomeTexts();
       this->label_noActionOgComment->setStyleSheet(style_green);
       this->value_noActionOg       ->setStyleSheet(style_green);
       return;
    }
 
    if (roundedPredictedOg > roundedTargetOg) {
-      this->label_noActionOgComment->setText(tr("↑ Above Target ↑"));
+      this->m_outcome = Outcome::AboveTarget;
       this->label_noActionOgComment->setStyleSheet(style_red); // #C62828 = red
       this->value_noActionOg       ->setStyleSheet(style_red);
    } else {
-      this->label_noActionOgComment->setText(tr("↓ Below Target ↓"));
+      this->m_outcome = Outcome::BelowTarget;
       this->label_noActionOgComment->setStyleSheet(style_blue); // #1976D2 = blue
       this->value_noActionOg       ->setStyleSheet(style_blue);
    }
+   // This also sets the text in groupBox_changeBoilVolume below
+   this->showOutcomeTexts();
 
    //
    // A multipurpose solution is to change the boil size -- either add water if gravity is too high or boil the wort
@@ -238,18 +249,6 @@ void OgCorrectionTool::calculate() {
    this->value_changeBoilVolume->setStyleSheet(style_green);
    this->label_finalBatchSize->setStyleSheet(style_blue);
    this->value_finalBatchSize->setStyleSheet(style_blue);
-   if (roundedPredictedOg > roundedTargetOg) {
-      //
-      // If the predicted OG is higher than target, then we propose the user add water to the boil
-      //
-      this->groupBox_changeBoilVolume->setTitle(tr("Remedy: Add Water To Boil"));
-      this->label_changeBoilVolume->setText(tr("Amount to Add"));
-      this->value_changeBoilVolume->setToolTip(tr("Amount of water you need to add to hit planned OG"));
-   } else {
-      this->groupBox_changeBoilVolume->setTitle(tr("Remedy: Boil Down To Reduce Wort Volume"));
-      this->label_changeBoilVolume->setText(tr("Amount to Boil Off"));
-      this->value_changeBoilVolume->setToolTip(tr("Extra wort you need to boil off to hit planned OG"));
-   }
 
    // Calculate volume to add to boil
    double const targetFinalPlato = Algorithms::SG_20C20C_toPlato(targetOg); // This is bad. This assumes the post-boil gravity = og. Need account for post-boil water additions.
@@ -306,7 +305,35 @@ void OgCorrectionTool::calculate() {
    return;
 }
 
+void OgCorrectionTool::showOutcomeTexts() {
+   switch (this->m_outcome) {
+      case Outcome::NotCalculated:
+         // Nothing to show
+         break;
+      case Outcome::OnTarget:
+         this->label_noActionOgComment->setText(tr("- On Target -"));
+         break;
+      case Outcome::AboveTarget:
+         this->label_noActionOgComment->setText(tr("↑ Above Target ↑"));
+         //
+         // If the predicted OG is higher than target, then we propose the user add water to the boil
+         //
+         this->groupBox_changeBoilVolume->setTitle(tr("Remedy: Add Water To Boil"));
+         this->label_changeBoilVolume->setText(tr("Amount to Add"));
+         this->value_changeBoilVolume->setToolTip(tr("Amount of water you need to add to hit planned OG"));
+         break;
+      case Outcome::BelowTarget:
+         this->label_noActionOgComment->setText(tr("↓ Below Target ↓"));
+         this->groupBox_changeBoilVolume->setTitle(tr("Remedy: Boil Down To Reduce Wort Volume"));
+         this->label_changeBoilVolume->setText(tr("Amount to Boil Off"));
+         this->value_changeBoilVolume->setToolTip(tr("Extra wort you need to boil off to hit planned OG"));
+         break;
+   }
+   return;
+}
+
 void OgCorrectionTool::hideOutputs() const {
+   this->m_outcome = Outcome::NotCalculated;
    this->groupBox_changeBoilVolume->setVisible(false);
    this->label_remediesSeparator  ->setVisible(false);
    this->groupBox_addSugarOrDme   ->setVisible(false);
@@ -314,5 +341,15 @@ void OgCorrectionTool::hideOutputs() const {
    this->value_noActionOg->setRawText("");
    this->label_noActionOgComment->setText("");
 
+   return;
+}
+
+void OgCorrectionTool::changeEvent(QEvent * event) {
+   if (event->type() == QEvent::LanguageChange) {
+      this->retranslateUi(this);
+      // Redo the text for the result of the last calculation, including what the generated retranslateUi resets
+      this->showOutcomeTexts();
+   }
+   this->QDialog::changeEvent(event);
    return;
 }

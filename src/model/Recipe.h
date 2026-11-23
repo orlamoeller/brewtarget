@@ -305,7 +305,7 @@ public:
    /*!
     * \brief Localised names of \c Recipe::Type values suitable for displaying to the end user
     */
-   static EnumStringMapping const typeDisplayNames;
+   static EnumDisplayNameMapping const typeDisplayNames;
 
    //=============================================== REGULAR PROPERTIES ================================================
    //
@@ -745,6 +745,14 @@ public:
     */
    double        targetTotalMashVol_l    () const;
    /**
+    * \brief How much more water the mash needs (or, if negative, how much less) to give the target pre-boil volume,
+    *        ie \c targetTotalMashVol_l less the water actually in the mash (\c Mash::totalMashWater_l).
+    *
+    *        Returns \c std::nullopt if the question does not arise, ie if there is no mash, no grain in the mash or no
+    *        target pre-boil volume.
+    */
+   std::optional<double> mashWaterShortfall_l() const;
+   /**
     * \brief The strike water (ie first infusion) needed for the supplied mash thickness, where the thickness is the
     *        ratio of water to grain in the grain bed.  This is the water for the grain bed plus
     *        \c Equipment::strikeWaterAllowance_l (ie the foundation water and mash tun loss, which have to be in the
@@ -831,16 +839,23 @@ public:
    int                                          getFermentationId () const;
 
    /**
-    * \brief This is used in the class implementation and in \c RecipeAttributeButtonBase to convert a Mash, Boil,
+    * \brief This is used in the class implementation and in templated code elsewhere to convert a Mash, Boil,
     *        Fermentation, Equipment, etc class to its corresponding Recipe property name.
     */
    template<class NE> static BtStringConst const & propertyNameFor();
 
    /**
-    * \brief This is used in \c RecipeAttributeButtonBase and also in places such as \c EditorWithRecipeBase where we
-    *        want to do templated code for Mash, Boil, Fermentation, etc.
+    * \brief This is used in places such as \c EditorWithRecipeBase where we want to do templated code for Mash, Boil,
+    *        Fermentation, etc.
     *
     *        No general implementation.  Only specialisations, all defined in model/Recipe.cpp.
+    *
+    *        NOTE: When calling this from a template where \c NE is a template parameter, you need to write
+    *              \c recipe->template \c get<NE>() rather than just \c recipe->get<NE>().  This is because \c get is a
+    *              member template being called with a dependent template argument, so the compiler needs to be told
+    *              that the \c < starts a template argument list rather than being a less-than operator.  (GCC lets you
+    *              get away without it in some cases, but Clang does not: "use 'template' keyword to treat 'get' as a
+    *              dependent template name".)
     */
    template<class NE> std::shared_ptr<NE> get() const;
 
